@@ -10,6 +10,9 @@ SRC=$APP/src
 BRANCH=${BRANCH:-main}
 PORT=$(sed -n 's/^PORT=//p' "$APP/.env" 2>/dev/null | tail -1)
 export PATH=$PATH:/usr/local/go/bin
+# Small servers (2 GB RAM): compiling modernc.org/sqlite peaks well above 1 GB.
+# A lower GOGC and one package at a time keep the compiler out of swap. Add swap if it still runs out.
+export GOGC=${GOGC:-20} GOFLAGS=${GOFLAGS:--p=1}
 
 git -C "$SRC" fetch --quiet origin "$BRANCH"
 git -C "$SRC" reset --quiet --hard "origin/$BRANCH"
