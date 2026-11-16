@@ -1,0 +1,7 @@
+.env
+data/
+telegram-drive
+*.pem
+.claude/
+.hallmark/
+.DS_Store

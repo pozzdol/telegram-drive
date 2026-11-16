@@ -1,0 +1,22 @@
+# systemd unit. Install: sudo cp deploy/telegram-drive.service /etc/systemd/system/
+# Expects the binary, .env and data/ in /opt/telegram-drive, owned by the user below.
+[Unit]
+Description=Telegram Drive API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/opt/telegram-drive
+# Only the tunnel / reverse proxy on this machine should reach the API.
+Environment=HOST=127.0.0.1
+ExecStart=/opt/telegram-drive/telegram-drive
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/telegram-drive/data
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
