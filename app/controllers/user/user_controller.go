@@ -9,6 +9,7 @@ import (
 
 	"telegram-drive/app"
 	"telegram-drive/app/controllers/auth"
+	"telegram-drive/app/models"
 	"telegram-drive/app/utils"
 )
 
@@ -24,7 +25,7 @@ type userRow struct {
 }
 
 func (c Controller) List(w http.ResponseWriter, r *http.Request, uid int64) {
-	rows, err := c.DB.Query(`SELECT u.id, u.username, u.is_admin, u.created_at, count(f.id), coalesce(sum(f.size), 0)
+	rows, err := c.DB.Query(`SELECT u.id, u.username, u.is_admin, u.created_at, count(f.id), coalesce(sum(f.size), 0)::bigint
 		FROM users u LEFT JOIN files f ON f.user_id = u.id GROUP BY u.id ORDER BY u.id`)
 	if err != nil {
 		utils.WriteErr(w, http.StatusInternalServerError, err.Error())
@@ -52,7 +53,7 @@ func cleanUsername(s string) (string, error) {
 }
 
 func writeDBErr(w http.ResponseWriter, err error) {
-	if strings.Contains(err.Error(), "UNIQUE") {
+	if models.IsUniqueViolation(err) {
 		utils.WriteErr(w, http.StatusConflict, "username already taken")
 		return
 	}
@@ -78,12 +79,12 @@ func (c Controller) Create(w http.ResponseWriter, r *http.Request, uid int64) {
 		utils.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	res, err := c.DB.Exec(`INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, ?)`, name, hash, req.IsAdmin)
+	var id int64
+	err = c.DB.QueryRow(`INSERT INTO users (username, password_hash, is_admin) VALUES ($1, $2, $3) RETURNING id`, name, hash, req.IsAdmin).Scan(&id)
 	if err != nil {
 		writeDBErr(w, err)
 		return
 	}
-	id, _ := res.LastInsertId()
 	utils.WriteJSON(w, http.StatusCreated, map[string]any{"id": id, "username": name})
 }
 
@@ -107,7 +108,7 @@ func (c Controller) Update(w http.ResponseWriter, r *http.Request, uid int64) {
 		return
 	}
 	var exists bool
-	c.DB.QueryRow(`SELECT 1 FROM users WHERE id = ?`, id).Scan(&exists)
+	c.DB.QueryRow(`SELECT 1 FROM users WHERE id = $1`, id).Scan(&exists)
 	if !exists {
 		utils.WriteErr(w, http.StatusNotFound, "user not found")
 		return
@@ -118,7 +119,7 @@ func (c Controller) Update(w http.ResponseWriter, r *http.Request, uid int64) {
 			utils.WriteErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		if _, err := c.DB.Exec(`UPDATE users SET username = ? WHERE id = ?`, name, id); err != nil {
+		if _, err := c.DB.Exec(`UPDATE users SET username = $1 WHERE id = $2`, name, id); err != nil {
 			writeDBErr(w, err)
 			return
 		}
@@ -129,11 +130,11 @@ func (c Controller) Update(w http.ResponseWriter, r *http.Request, uid int64) {
 			return
 		}
 		if id != uid {
-			c.DB.Exec(`DELETE FROM sessions WHERE user_id = ?`, id)
+			c.DB.Exec(`DELETE FROM sessions WHERE user_id = $1`, id)
 		}
 	}
 	if req.IsAdmin != nil {
-		c.DB.Exec(`UPDATE users SET is_admin = ? WHERE id = ?`, *req.IsAdmin, id)
+		c.DB.Exec(`UPDATE users SET is_admin = $1 WHERE id = $2`, *req.IsAdmin, id)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -150,12 +151,12 @@ func (c Controller) Delete(w http.ResponseWriter, r *http.Request, uid int64) {
 		return
 	}
 	var files int64
-	c.DB.QueryRow(`SELECT count(*) FROM files WHERE user_id = ?`, id).Scan(&files)
+	c.DB.QueryRow(`SELECT count(*) FROM files WHERE user_id = $1`, id).Scan(&files)
 	if files > 0 {
 		utils.WriteErr(w, http.StatusConflict, "user still has files")
 		return
 	}
-	res, err := c.DB.Exec(`DELETE FROM users WHERE id = ?`, id) // sessions, folders, uploads cascade
+	res, err := c.DB.Exec(`DELETE FROM users WHERE id = $1`, id) // sessions, folders, uploads cascade
 	if err != nil {
 		utils.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return

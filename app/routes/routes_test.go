@@ -2,10 +2,12 @@ package routes
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"image"
 	"image/jpeg"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -14,13 +16,33 @@ import (
 	"telegram-drive/app/models"
 )
 
-// Auth and folder rules, no Telegram needed.
-func TestAuthAndFolders(t *testing.T) {
-	db, err := models.Open(":memory:")
+// testDB gives an empty database. Set TEST_DATABASE_URL to a throwaway PostgreSQL database:
+// every table in its public schema is dropped.
+func testDB(t *testing.T) *sql.DB {
+	t.Helper()
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL not set")
+	}
+	raw, err := sql.Open("pgx", url)
 	if err != nil {
 		t.Fatal(err)
 	}
-	db.SetMaxOpenConns(1) // each :memory: connection is a separate DB
+	if _, err := raw.Exec(`DROP SCHEMA public CASCADE; CREATE SCHEMA public`); err != nil {
+		t.Fatal(err)
+	}
+	raw.Close()
+	db, err := models.Open(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db
+}
+
+// Auth and folder rules, no Telegram needed.
+func TestAuthAndFolders(t *testing.T) {
+	db := testDB(t)
 	h := New(&app.App{DB: db, UploadDir: t.TempDir(), ThumbDir: t.TempDir(), MaxUpload: 1 << 30})
 
 	token := ""
@@ -150,11 +172,7 @@ var itoa = strconv.Itoa
 
 // Video previews come from the browser: only valid JPEGs for video files are kept.
 func TestVideoThumb(t *testing.T) {
-	db, err := models.Open(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.SetMaxOpenConns(1)
+	db := testDB(t)
 	h := New(&app.App{DB: db, UploadDir: t.TempDir(), ThumbDir: t.TempDir(), MaxUpload: 1 << 30})
 	call := func(method, path, token string, body []byte) int {
 		req := httptest.NewRequest(method, path, bytes.NewReader(body))

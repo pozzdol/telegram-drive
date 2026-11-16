@@ -27,7 +27,7 @@ func (c Controller) getFile(w http.ResponseWriter, r *http.Request, uid int64) (
 	if !ok {
 		return f, 0, false
 	}
-	err := c.DB.QueryRow(`SELECT id, folder_id, name, size, mime, created_at, msg_id FROM files WHERE id = ? AND user_id = ?`,
+	err := c.DB.QueryRow(`SELECT id, folder_id, name, size, mime, created_at, msg_id FROM files WHERE id = $1 AND user_id = $2`,
 		id, uid).Scan(&f.ID, &f.FolderID, &f.Name, &f.Size, &f.Mime, &f.CreatedAt, &msgID)
 	if err != nil {
 		utils.WriteErr(w, http.StatusNotFound, "file not found")
@@ -154,8 +154,8 @@ func (c Controller) Media(w http.ResponseWriter, r *http.Request, uid int64) {
 	}
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	files, err := models.QueryFiles(c.DB, `SELECT `+models.FileColumns+` FROM files
-		WHERE user_id = ? AND (mime LIKE 'image/%' OR mime LIKE 'video/%') AND mime <> 'image/svg+xml'
-		ORDER BY coalesce(nullif(taken_at, 0), created_at) DESC, id DESC LIMIT ? OFFSET ?`, uid, limit, max(offset, 0))
+		WHERE user_id = $1 AND (mime LIKE 'image/%' OR mime LIKE 'video/%') AND mime <> 'image/svg+xml'
+		ORDER BY coalesce(nullif(taken_at, 0), created_at) DESC, id DESC LIMIT $2 OFFSET $3`, uid, limit, max(offset, 0))
 	if err != nil {
 		utils.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -190,14 +190,14 @@ func (c Controller) BackfillTakenAt() {
 		if when := thumb.TakenAt(rs); !when.IsZero() {
 			taken = when.Unix()
 		}
-		c.DB.Exec(`UPDATE files SET taken_at = ? WHERE id = ?`, taken, t.id)
+		c.DB.Exec(`UPDATE files SET taken_at = $1 WHERE id = $2`, taken, t.id)
 	}
 }
 
 // GET /api/usage — how much is stored, for the sidebar.
 func (c Controller) Usage(w http.ResponseWriter, r *http.Request, uid int64) {
 	var n, bytes int64
-	c.DB.QueryRow(`SELECT count(*), coalesce(sum(size), 0) FROM files WHERE user_id = ?`, uid).Scan(&n, &bytes)
+	c.DB.QueryRow(`SELECT count(*), coalesce(sum(size), 0)::bigint FROM files WHERE user_id = $1`, uid).Scan(&n, &bytes)
 	utils.WriteJSON(w, http.StatusOK, map[string]int64{"files": n, "bytes": bytes})
 }
 
@@ -226,7 +226,7 @@ func (c Controller) Update(w http.ResponseWriter, r *http.Request, uid int64) {
 			utils.WriteErr(w, http.StatusBadRequest, "name must be 1-255 chars")
 			return
 		}
-		c.DB.Exec(`UPDATE files SET name = ? WHERE id = ?`, name, f.ID)
+		c.DB.Exec(`UPDATE files SET name = $1 WHERE id = $2`, name, f.ID)
 	}
 	if req.FolderID != nil {
 		ref, err := models.FolderRef(c.DB, uid, *req.FolderID)
@@ -234,7 +234,7 @@ func (c Controller) Update(w http.ResponseWriter, r *http.Request, uid int64) {
 			utils.WriteErr(w, http.StatusNotFound, err.Error())
 			return
 		}
-		c.DB.Exec(`UPDATE files SET folder_id = ? WHERE id = ?`, ref, f.ID)
+		c.DB.Exec(`UPDATE files SET folder_id = $1 WHERE id = $2`, ref, f.ID)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -249,7 +249,7 @@ func (c Controller) Delete(w http.ResponseWriter, r *http.Request, uid int64) {
 		utils.WriteErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	c.DB.Exec(`DELETE FROM files WHERE id = ?`, f.ID)
+	c.DB.Exec(`DELETE FROM files WHERE id = $1`, f.ID)
 	os.Remove(ThumbPath(c.ThumbDir, f.ID))
 	w.WriteHeader(http.StatusNoContent)
 }

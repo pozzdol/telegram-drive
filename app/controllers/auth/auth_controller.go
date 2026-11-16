@@ -2,6 +2,8 @@
 package auth
 
 import (
+	"database/sql"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -39,7 +41,7 @@ func (c Controller) Secure(next app.AuthedHandler) http.HandlerFunc {
 func (c Controller) Admin(next app.AuthedHandler) http.HandlerFunc {
 	return c.Secure(func(w http.ResponseWriter, r *http.Request, uid int64) {
 		var admin bool
-		if c.DB.QueryRow(`SELECT is_admin FROM users WHERE id = ?`, uid).Scan(&admin); !admin {
+		if c.DB.QueryRow(`SELECT is_admin FROM users WHERE id = $1`, uid).Scan(&admin); !admin {
 			utils.WriteErr(w, http.StatusForbidden, "admin only")
 			return
 		}
@@ -51,7 +53,7 @@ func (c Controller) Admin(next app.AuthedHandler) http.HandlerFunc {
 func (c Controller) Me(w http.ResponseWriter, r *http.Request, uid int64) {
 	var name string
 	var admin bool
-	if err := c.DB.QueryRow(`SELECT username, is_admin FROM users WHERE id = ?`, uid).Scan(&name, &admin); err != nil {
+	if err := c.DB.QueryRow(`SELECT username, is_admin FROM users WHERE id = $1`, uid).Scan(&name, &admin); err != nil {
 		utils.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
@@ -68,7 +70,7 @@ func (c Controller) ChangePassword(w http.ResponseWriter, r *http.Request, uid i
 		return
 	}
 	var hash string
-	c.DB.QueryRow(`SELECT password_hash FROM users WHERE id = ?`, uid).Scan(&hash)
+	c.DB.QueryRow(`SELECT password_hash FROM users WHERE id = $1`, uid).Scan(&hash)
 	if !checkPassword(hash, req.Current) {
 		utils.WriteErr(w, http.StatusForbidden, "current password is wrong")
 		return
@@ -77,7 +79,7 @@ func (c Controller) ChangePassword(w http.ResponseWriter, r *http.Request, uid i
 		utils.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	c.DB.Exec(`DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?`, uid, hashToken(tokenFrom(r)))
+	c.DB.Exec(`DELETE FROM sessions WHERE user_id = $1 AND token_hash <> $2`, uid, hashToken(tokenFrom(r)))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -102,17 +104,17 @@ func (c Controller) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Only the very first user registers (and becomes admin); everyone else is added from the admin page.
-	res, err := c.DB.Exec(`INSERT INTO users (username, password_hash, is_admin) SELECT ?, ?, 1 WHERE NOT EXISTS (SELECT 1 FROM users)`,
-		req.Username, hash)
+	var id int64
+	err = c.DB.QueryRow(`INSERT INTO users (username, password_hash, is_admin) SELECT $1, $2, true WHERE NOT EXISTS (SELECT 1 FROM users) RETURNING id`,
+		req.Username, hash).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		utils.WriteErr(w, http.StatusForbidden, "registration closed")
+		return
+	}
 	if err != nil {
 		utils.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		utils.WriteErr(w, http.StatusForbidden, "registration closed")
-		return
-	}
-	id, _ := res.LastInsertId()
 	utils.WriteJSON(w, http.StatusCreated, map[string]any{"id": id, "username": req.Username})
 }
 
@@ -123,7 +125,7 @@ func (c Controller) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	var uid int64
 	var hash string
-	err := c.DB.QueryRow(`SELECT id, password_hash FROM users WHERE username = ?`, strings.TrimSpace(req.Username)).Scan(&uid, &hash)
+	err := c.DB.QueryRow(`SELECT id, password_hash FROM users WHERE username = $1`, strings.TrimSpace(req.Username)).Scan(&uid, &hash)
 	if err != nil || !checkPassword(hash, req.Password) {
 		utils.WriteErr(w, http.StatusUnauthorized, "invalid username or password")
 		return
@@ -145,7 +147,7 @@ func isHTTPS(r *http.Request) bool {
 }
 
 func (c Controller) Logout(w http.ResponseWriter, r *http.Request, uid int64) {
-	c.DB.Exec(`DELETE FROM sessions WHERE token_hash = ?`, hashToken(tokenFrom(r)))
+	c.DB.Exec(`DELETE FROM sessions WHERE token_hash = $1`, hashToken(tokenFrom(r)))
 	http.SetCookie(w, &http.Cookie{Name: cookieName, Path: "/", MaxAge: -1})
 	w.WriteHeader(http.StatusNoContent)
 }

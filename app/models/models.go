@@ -85,7 +85,7 @@ func FolderRef(db *sql.DB, uid, id int64) (any, error) {
 		return nil, nil
 	}
 	var x int
-	if err := db.QueryRow(`SELECT 1 FROM folders WHERE id = ? AND user_id = ?`, id, uid).Scan(&x); err != nil {
+	if err := db.QueryRow(`SELECT 1 FROM folders WHERE id = $1 AND user_id = $2`, id, uid).Scan(&x); err != nil {
 		return nil, ErrFolderNotFound
 	}
 	return id, nil

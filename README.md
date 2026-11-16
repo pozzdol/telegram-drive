@@ -1,6 +1,6 @@
 # telegram-drive
 
-A self-hosted cloud drive that stores your files in a private Telegram channel. Folders, names and users live in a small SQLite database; the bytes live in Telegram.
+A self-hosted cloud drive that stores your files in a private Telegram channel. Folders, names and users live in PostgreSQL; the bytes live in Telegram.
 
 It has a web UI (in Indonesian) that should feel familiar if you use Google Drive, plus a Google Photos-style gallery.
 
@@ -11,13 +11,14 @@ It has a web UI (in Indonesian) that should feel familiar if you use Google Driv
 - **Family accounts.** Each user has a private drive. There is no public sign-up: the first user becomes admin and adds the others from the admin page.
 - **Easy to host.** The UI is static files (Cloudflare Pages, Vercel, Netlify). The backend is a single Go binary with no CGO, behind Cloudflare Tunnel or any reverse proxy.
 
-Built with Go, [gotd/td](https://github.com/gotd/td) (MTProto, logged in as a user account), [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite), React and Vite.
+Built with Go, [gotd/td](https://github.com/gotd/td) (MTProto, logged in as a user account), PostgreSQL ([pgx](https://github.com/jackc/pgx)), React and Vite.
 
 > Telegram is not a backup service. Keep copies of anything you cannot afford to lose, and read Telegram's terms of service before storing large amounts of data.
 
 ## Requirements
 
 - Go (version in `go.mod`) and Node.js 22 or newer.
+- PostgreSQL 13 or newer, with an empty database for the drive. Tables are created at startup.
 - A Telegram account, plus an `api_id` and `api_hash` from <https://my.telegram.org> (API development tools).
 - A **private channel** owned by that account. Its id looks like `-1001234567890`; you can see it, for example, by forwarding a channel message to a bot such as @userinfobot.
 
@@ -26,7 +27,7 @@ Built with Go, [gotd/td](https://github.com/gotd/td) (MTProto, logged in as a us
 ```bash
 git clone https://github.com/pozzdol/telegram-drive.git
 cd telegram-drive
-cp .env.example .env        # fill in the Telegram values
+cp .env.example .env        # fill in DATABASE_URL and the Telegram values
 go run .                    # first run asks for the Telegram login code (and 2FA password)
 ```
 
@@ -52,7 +53,7 @@ Then sign in in the UI. Add more people from the avatar menu, under **Kelola pen
 
 - `.env`: your Telegram API credentials.
 - `data/telegram.session`: full access to the Telegram account. Never commit or share it.
-- `data/drive.db`: folders, file names and users. Back it up: without it the files are still in the channel, but you lose their names and folders.
+- The PostgreSQL database: folders, file names and users. Back it up (`pg_dump`): without it the files are still in the channel, but you lose their names and folders.
 
 `data/uploads/` holds chunks while an upload is in progress and `data/thumbs/` holds previews. Both are rebuilt as needed.
 
@@ -68,7 +69,7 @@ app/controllers/user/           admin: family accounts
 app/controllers/folder/         list, search, create, rename/move, delete folders
 app/controllers/file/           download (Range), previews, gallery, rename/move, delete files
 app/controllers/upload/         chunked uploads and background send to Telegram
-app/models/                     SQLite schema, row structs, shared queries
+app/models/                     PostgreSQL schema, row structs, shared queries
 app/utils/tgclient/             Telegram client (MTProto) and parallel chunk reader
 app/utils/thumb/                image thumbnails, EXIF orientation and date
 web/                            React UI (Vite)
@@ -174,7 +175,8 @@ Issues and pull requests are welcome. Before opening a PR:
 ```bash
 gofmt -l .                  # must print nothing
 go vet ./...
-go test ./...
+# API tests need a throwaway PostgreSQL database; they drop everything in its public schema.
+TEST_DATABASE_URL=postgres://user:pass@localhost:5432/telegram_drive_test?sslmode=disable go test ./...
 npm --prefix web run build
 ```
 

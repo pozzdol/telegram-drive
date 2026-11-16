@@ -14,7 +14,6 @@ package upload
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"errors"
 	"io"
 	"log"
@@ -80,7 +79,7 @@ func (c Controller) Create(w http.ResponseWriter, r *http.Request, uid int64) {
 		return
 	}
 	f.Close()
-	if _, err := c.DB.Exec(`INSERT INTO uploads (id, user_id, folder_id, name, size, mime) VALUES (?, ?, ?, ?, ?, ?)`,
+	if _, err := c.DB.Exec(`INSERT INTO uploads (id, user_id, folder_id, name, size, mime) VALUES ($1, $2, $3, $4, $5, $6)`,
 		id, uid, ref, name, req.Size, req.Mime); err != nil {
 		os.Remove(c.partPath(id))
 		utils.WriteErr(w, http.StatusInternalServerError, err.Error())
@@ -90,7 +89,7 @@ func (c Controller) Create(w http.ResponseWriter, r *http.Request, uid int64) {
 }
 
 func (c Controller) getUpload(uid int64, id string) (u models.Upload, err error) {
-	err = c.DB.QueryRow(`SELECT id, name, size, received, sent, status, file_id, error FROM uploads WHERE id = ? AND user_id = ?`,
+	err = c.DB.QueryRow(`SELECT id, name, size, received, sent, status, file_id, error FROM uploads WHERE id = $1 AND user_id = $2`,
 		id, uid).Scan(&u.ID, &u.Name, &u.Size, &u.Received, &u.Sent, &u.Status, &u.FileID, &u.Error)
 	return u, err
 }
@@ -139,7 +138,7 @@ func (c Controller) Chunk(w http.ResponseWriter, r *http.Request, uid int64) {
 	}
 	received := offset + n
 	// Conditional update: a duplicate request for the same offset cannot advance twice.
-	res, _ := c.DB.Exec(`UPDATE uploads SET received = ? WHERE id = ? AND received = ? AND status = 'receiving'`, received, u.ID, offset)
+	res, _ := c.DB.Exec(`UPDATE uploads SET received = $1 WHERE id = $2 AND received = $3 AND status = 'receiving'`, received, u.ID, offset)
 	if k, _ := res.RowsAffected(); k == 0 {
 		utils.WriteErr(w, http.StatusConflict, "concurrent chunk for the same offset")
 		return
@@ -147,7 +146,7 @@ func (c Controller) Chunk(w http.ResponseWriter, r *http.Request, uid int64) {
 	status := "receiving"
 	if received == u.Size {
 		f.Truncate(u.Size)
-		c.DB.Exec(`UPDATE uploads SET status = 'sending' WHERE id = ?`, u.ID)
+		c.DB.Exec(`UPDATE uploads SET status = 'sending' WHERE id = $1`, u.ID)
 		status = "sending"
 		go c.sendUpload(u.ID)
 	}
@@ -159,7 +158,7 @@ func (c Controller) sendUpload(id string) {
 	var uid, size int64
 	var folderID *int64
 	var name, mimeType string
-	if err := c.DB.QueryRow(`SELECT user_id, folder_id, name, size, mime FROM uploads WHERE id = ?`, id).
+	if err := c.DB.QueryRow(`SELECT user_id, folder_id, name, size, mime FROM uploads WHERE id = $1`, id).
 		Scan(&uid, &folderID, &name, &size, &mimeType); err != nil {
 		log.Printf("upload %s: %v", id, err)
 		return
@@ -169,7 +168,7 @@ func (c Controller) sendUpload(id string) {
 	progress := tgclient.ProgressFunc(func(sent int64) {
 		if pct := sent * 100 / size; pct != lastPct { // one DB write per percent
 			lastPct = pct
-			c.DB.Exec(`UPDATE uploads SET sent = ? WHERE id = ?`, sent, id)
+			c.DB.Exec(`UPDATE uploads SET sent = $1 WHERE id = $2`, sent, id)
 		}
 	})
 
@@ -199,20 +198,19 @@ func (c Controller) sendUpload(id string) {
 				f.Close()
 			}
 		}
-		var res sql.Result
-		res, err = c.DB.Exec(`INSERT INTO files (user_id, folder_id, name, size, mime, msg_id, taken_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			uid, folderID, name, size, mimeType, msgID, taken)
+		var fileID int64
+		err = c.DB.QueryRow(`INSERT INTO files (user_id, folder_id, name, size, mime, msg_id, taken_at) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+			uid, folderID, name, size, mimeType, msgID, taken).Scan(&fileID)
 		if err != nil {
 			c.TG.Delete(context.Background(), msgID) // e.g. folder deleted meanwhile; don't leave an orphan
 		} else {
-			fileID, _ := res.LastInsertId()
 			if thumb.Supported(mimeType) { // the bytes are still on disk: cheaper than fetching them back later
 				if f, err := os.Open(c.partPath(id)); err == nil {
 					thumb.Make(f, file.ThumbPath(c.ThumbDir, fileID))
 					f.Close()
 				}
 			}
-			c.DB.Exec(`UPDATE uploads SET status = 'done', sent = size, file_id = ? WHERE id = ?`, fileID, id)
+			c.DB.Exec(`UPDATE uploads SET status = 'done', sent = size, file_id = $1 WHERE id = $2`, fileID, id)
 			os.Remove(c.partPath(id))
 			return
 		}
@@ -220,7 +218,7 @@ func (c Controller) sendUpload(id string) {
 	if errors.Is(c.Ctx.Err(), context.Canceled) {
 		return // server stopping: keep status 'sending' and the part file, Resume picks it up
 	}
-	c.DB.Exec(`UPDATE uploads SET status = 'error', error = ? WHERE id = ?`, err.Error(), id)
+	c.DB.Exec(`UPDATE uploads SET status = 'error', error = $1 WHERE id = $2`, err.Error(), id)
 	os.Remove(c.partPath(id))
 }
 
@@ -243,7 +241,7 @@ func (c Controller) Resume() {
 	rows.Close()
 	for _, id := range drop {
 		os.Remove(c.partPath(id))
-		c.DB.Exec(`DELETE FROM uploads WHERE id = ?`, id)
+		c.DB.Exec(`DELETE FROM uploads WHERE id = $1`, id)
 	}
 	for _, id := range resend {
 		go c.sendUpload(id)

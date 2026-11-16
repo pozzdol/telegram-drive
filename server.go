@@ -30,7 +30,7 @@ func main() {
 			log.Fatal(err)
 		}
 	}
-	db, err := models.Open(cfg.DBPath())
+	db, err := models.Open(cfg.DatabaseURL)
 	if err != nil {
 		log.Fatal(err)
 	}
