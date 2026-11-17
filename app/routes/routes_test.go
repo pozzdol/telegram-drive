@@ -8,7 +8,6 @@ import (
 	"image/jpeg"
 	"net/http/httptest"
 	"os"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -80,27 +79,27 @@ func TestAuthAndFolders(t *testing.T) {
 	token = out["token"].(string)
 
 	_, out = call("POST", "/api/folders", `{"name":"A"}`)
-	idA := int(out["id"].(float64))
-	c, out = call("POST", "/api/folders", `{"name":"B","parent_id":`+itoa(idA)+`}`)
+	idA := out["id"].(string)
+	c, out = call("POST", "/api/folders", `{"name":"B","parent_id":"`+idA+`"}`)
 	expect(201, c, "create B in A")
-	idB := int(out["id"].(float64))
+	idB := out["id"].(string)
 
-	c, _ = call("PATCH", "/api/folders/"+itoa(idA), `{"parent_id":`+itoa(idB)+`}`)
+	c, _ = call("PATCH", "/api/folders/"+idA, `{"parent_id":"`+idB+`"}`)
 	expect(400, c, "move A into its child B")
-	c, _ = call("DELETE", "/api/folders/"+itoa(idA), "")
+	c, _ = call("DELETE", "/api/folders/"+idA, "")
 	expect(409, c, "delete non-empty A")
 
-	c, out = call("GET", "/api/list?folder_id="+itoa(idA), "")
+	c, out = call("GET", "/api/list?folder_id="+idA, "")
 	expect(200, c, "list A")
 	if n := len(out["folders"].([]any)); n != 1 {
 		t.Fatalf("A should contain 1 folder, has %d", n)
 	}
-	c, _ = call("PATCH", "/api/folders/"+itoa(idB), `{"parent_id":0,"name":"B2"}`)
+	c, _ = call("PATCH", "/api/folders/"+idB, `{"parent_id":"","name":"B2"}`)
 	expect(204, c, "move B to root")
-	c, _ = call("DELETE", "/api/folders/"+itoa(idA), "")
+	c, _ = call("DELETE", "/api/folders/"+idA, "")
 	expect(204, c, "delete empty A")
 
-	c, out = call("GET", "/api/list?folder_id="+itoa(idB), "")
+	c, out = call("GET", "/api/list?folder_id="+idB, "")
 	if p := out["path"].([]any); len(p) != 1 || p[0].(map[string]any)["name"] != "B2" {
 		t.Fatalf("breadcrumb path wrong: %v", out["path"])
 	}
@@ -140,18 +139,18 @@ func TestAuthAndFolders(t *testing.T) {
 
 	// Bulk move: several items into one folder; never a folder into itself or its subfolder.
 	_, out = call("POST", "/api/folders", `{"name":"M1"}`)
-	idM1 := itoa(int(out["id"].(float64)))
+	idM1 := out["id"].(string)
 	_, out = call("POST", "/api/folders", `{"name":"M2"}`)
-	idM2 := itoa(int(out["id"].(float64)))
-	_, out = call("POST", "/api/folders", `{"name":"M1child","parent_id":`+idM1+`}`)
-	idM1c := itoa(int(out["id"].(float64)))
-	c, _ = call("POST", "/api/move", `{"folders":[`+idM1+`],"to":`+idM1c+`}`)
+	idM2 := out["id"].(string)
+	_, out = call("POST", "/api/folders", `{"name":"M1child","parent_id":"`+idM1+`"}`)
+	idM1c := out["id"].(string)
+	c, _ = call("POST", "/api/move", `{"folders":["`+idM1+`"],"to":"`+idM1c+`"}`)
 	expect(400, c, "move folder into its own child")
-	c, _ = call("POST", "/api/move", `{"folders":[`+idM1+`,`+idM2+`],"to":`+idM1+`}`)
+	c, _ = call("POST", "/api/move", `{"folders":["`+idM1+`","`+idM2+`"],"to":"`+idM1+`"}`)
 	expect(400, c, "move folder into itself")
-	c, _ = call("POST", "/api/move", `{"folders":[`+idM2+`],"to":999999}`)
+	c, _ = call("POST", "/api/move", `{"folders":["`+idM2+`"],"to":"`+models.NewID()+`"}`)
 	expect(404, c, "move into unknown folder")
-	c, out = call("POST", "/api/move", `{"folders":[`+idM2+`],"to":`+idM1c+`}`)
+	c, out = call("POST", "/api/move", `{"folders":["`+idM2+`"],"to":"`+idM1c+`"}`)
 	expect(200, c, "bulk move")
 	if out["folders"].(float64) != 1 {
 		t.Fatalf("bulk move count wrong: %v", out)
@@ -160,19 +159,19 @@ func TestAuthAndFolders(t *testing.T) {
 	if fs := out["folders"].([]any); len(fs) != 1 || fs[0].(map[string]any)["name"] != "M2" {
 		t.Fatalf("M2 should now be inside M1child: %v", out)
 	}
-	c, _ = call("POST", "/api/move", `{"folders":[`+idM1+`],"to":0}`)
+	c, _ = call("POST", "/api/move", `{"folders":["`+idM1+`"],"to":""}`)
 	expect(200, c, "move to root")
-	call("POST", "/api/delete", `{"folders":[`+idM1+`]}`)
+	call("POST", "/api/delete", `{"folders":["`+idM1+`"]}`)
 
 	// Bulk delete removes a folder with everything below it, and only the caller's folders.
 	_, out = call("POST", "/api/folders", `{"name":"X"}`)
-	idX := itoa(int(out["id"].(float64)))
-	_, out = call("POST", "/api/folders", `{"name":"Y","parent_id":`+idX+`}`)
-	idY := itoa(int(out["id"].(float64)))
-	call("POST", "/api/folders", `{"name":"Z","parent_id":`+idY+`}`)
+	idX := out["id"].(string)
+	_, out = call("POST", "/api/folders", `{"name":"Y","parent_id":"`+idX+`"}`)
+	idY := out["id"].(string)
+	call("POST", "/api/folders", `{"name":"Z","parent_id":"`+idY+`"}`)
 	c, _ = call("POST", "/api/delete", `{}`)
 	expect(400, c, "bulk delete nothing")
-	c, out = call("POST", "/api/delete", `{"folders":[`+idX+`, 999999]}`)
+	c, out = call("POST", "/api/delete", `{"folders":["`+idX+`","`+models.NewID()+`"]}`)
 	expect(200, c, "bulk delete folder tree")
 	if out["folders"].(float64) != 3 || out["files"].(float64) != 0 {
 		t.Fatalf("bulk delete counts wrong: %v", out)
@@ -189,13 +188,13 @@ func TestAuthAndFolders(t *testing.T) {
 	expect(400, c, "short password")
 	c, out = call("POST", "/api/admin/users", `{"username":"ibu","password":"rahasia456"}`)
 	expect(201, c, "admin creates user")
-	idIbu := itoa(int(out["id"].(float64)))
+	idIbu := out["id"].(string)
 	c, _ = call("POST", "/api/admin/users", `{"username":"ibu","password":"rahasia456"}`)
 	expect(409, c, "duplicate username")
 	_, out = call("GET", "/api/me", "")
-	c, _ = call("PATCH", "/api/admin/users/"+itoa(int(out["id"].(float64))), `{"is_admin":false}`)
+	c, _ = call("PATCH", "/api/admin/users/"+out["id"].(string), `{"is_admin":false}`)
 	expect(400, c, "admin demotes self")
-	c, _ = call("DELETE", "/api/admin/users/"+itoa(int(out["id"].(float64))), "")
+	c, _ = call("DELETE", "/api/admin/users/"+out["id"].(string), "")
 	expect(400, c, "admin deletes self")
 
 	adminToken := token
@@ -228,8 +227,6 @@ func TestAuthAndFolders(t *testing.T) {
 	expect(401, c, "list after logout")
 }
 
-var itoa = strconv.Itoa
-
 // Video previews come from the browser: only valid JPEGs for video files are kept.
 func TestVideoThumb(t *testing.T) {
 	db := testDB(t)
@@ -255,33 +252,38 @@ func TestVideoThumb(t *testing.T) {
 	json.Unmarshal(rec.Body.Bytes(), &out)
 	tok := out["token"]
 
-	db.Exec(`INSERT INTO files (id, user_id, name, size, mime, msg_id) VALUES (1, 1, 'a.mp4', 10, 'video/mp4', 1), (2, 1, 'b.txt', 10, 'text/plain', 2)`)
+	const f1, f2, f3, f4 = "0190a000-0000-7000-8000-000000000001", "0190a000-0000-7000-8000-000000000002", "0190a000-0000-7000-8000-000000000003", "0190a000-0000-7000-8000-000000000004"
+	if _, err := db.Exec(`INSERT INTO files (id, user_id, name, size, mime, msg_id) SELECT $1::uuid, id, 'a.mp4', 10, 'video/mp4', 1 FROM users UNION ALL SELECT $2::uuid, id, 'b.txt', 10, 'text/plain', 2 FROM users`, f1, f2); err != nil {
+		t.Fatal(err)
+	}
 	var jpg bytes.Buffer
 	jpeg.Encode(&jpg, image.NewRGBA(image.Rect(0, 0, 32, 18)), nil)
 
 	// A file whose message was deleted in Telegram is listed as missing, and its record can be
 	// removed without Telegram (TG is nil in tests, so any Telegram call would panic).
-	db.Exec(`INSERT INTO files (id, user_id, name, size, mime, msg_id, missing_at) VALUES (3, 1, 'gone.jpg', 10, 'image/jpeg', 3, 1), (4, 1, 'gone2.jpg', 10, 'image/jpeg', 4, 1)`)
+	if _, err := db.Exec(`INSERT INTO files (id, user_id, name, size, mime, msg_id, missing_at) SELECT $1::uuid, id, 'gone.jpg', 10, 'image/jpeg', 3, 1 FROM users UNION ALL SELECT $2::uuid, id, 'gone2.jpg', 10, 'image/jpeg', 4, 1 FROM users`, f3, f4); err != nil {
+		t.Fatal(err)
+	}
 	listReq := httptest.NewRequest("GET", "/api/list", nil)
 	listReq.Header.Set("Authorization", "Bearer "+tok)
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, listReq)
 	var list struct {
 		Files []struct {
-			ID      int64
+			ID      string
 			Missing bool
 		}
 	}
 	json.Unmarshal(rec.Body.Bytes(), &list)
 	for _, f := range list.Files {
-		if want := f.ID >= 3; f.Missing != want {
-			t.Fatalf("file %d: missing = %v, want %v", f.ID, f.Missing, want)
+		if want := f.ID == f3 || f.ID == f4; f.Missing != want {
+			t.Fatalf("file %s: missing = %v, want %v", f.ID, f.Missing, want)
 		}
 	}
-	if c := call("DELETE", "/api/files/3", tok, nil); c != 204 {
+	if c := call("DELETE", "/api/files/"+f3, tok, nil); c != 204 {
 		t.Fatalf("delete missing file: want 204, got %d", c)
 	}
-	if c := call("POST", "/api/delete", tok, []byte(`{"files":[4]}`)); c != 200 {
+	if c := call("POST", "/api/delete", tok, []byte(`{"files":["`+f4+`"]}`)); c != 200 {
 		t.Fatalf("bulk delete missing file: want 200, got %d", c)
 	}
 
@@ -290,11 +292,11 @@ func TestVideoThumb(t *testing.T) {
 		body         []byte
 		want         int
 	}{
-		{"GET", "/api/files/1/thumb", nil, 404},
-		{"PUT", "/api/files/1/thumb", []byte("not a jpeg"), 400},
-		{"PUT", "/api/files/2/thumb", jpg.Bytes(), 400},
-		{"PUT", "/api/files/1/thumb", jpg.Bytes(), 204},
-		{"GET", "/api/files/1/thumb", nil, 200},
+		{"GET", "/api/files/" + f1 + "/thumb", nil, 404},
+		{"PUT", "/api/files/" + f1 + "/thumb", []byte("not a jpeg"), 400},
+		{"PUT", "/api/files/" + f2 + "/thumb", jpg.Bytes(), 400},
+		{"PUT", "/api/files/" + f1 + "/thumb", jpg.Bytes(), 204},
+		{"GET", "/api/files/" + f1 + "/thumb", nil, 200},
 	} {
 		if got := call(tc.method, tc.path, tok, tc.body); got != tc.want {
 			t.Fatalf("%s %s: want %d, got %d", tc.method, tc.path, tc.want, got)

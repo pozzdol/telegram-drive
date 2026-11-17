@@ -16,7 +16,7 @@ import (
 type Controller struct{ *app.App }
 
 type userRow struct {
-	ID        int64  `json:"id"`
+	ID        string `json:"id"`
 	Username  string `json:"username"`
 	IsAdmin   bool   `json:"is_admin"`
 	CreatedAt int64  `json:"created_at"`
@@ -24,7 +24,7 @@ type userRow struct {
 	Bytes     int64  `json:"bytes"`
 }
 
-func (c Controller) List(w http.ResponseWriter, r *http.Request, uid int64) {
+func (c Controller) List(w http.ResponseWriter, r *http.Request, uid string) {
 	rows, err := c.DB.Query(`SELECT u.id, u.username, u.is_admin, u.created_at, count(f.id), coalesce(sum(f.size), 0)::bigint
 		FROM users u LEFT JOIN files f ON f.user_id = u.id GROUP BY u.id ORDER BY u.id`)
 	if err != nil {
@@ -60,7 +60,7 @@ func writeDBErr(w http.ResponseWriter, err error) {
 	utils.ServerErr(w, http.StatusInternalServerError, err)
 }
 
-func (c Controller) Create(w http.ResponseWriter, r *http.Request, uid int64) {
+func (c Controller) Create(w http.ResponseWriter, r *http.Request, uid string) {
 	var req struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -79,8 +79,8 @@ func (c Controller) Create(w http.ResponseWriter, r *http.Request, uid int64) {
 		utils.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	var id int64
-	err = c.DB.QueryRow(`INSERT INTO users (username, password_hash, is_admin) VALUES ($1, $2, $3) RETURNING id`, name, hash, req.IsAdmin).Scan(&id)
+	var id string
+	err = c.DB.QueryRow(`INSERT INTO users (id, username, password_hash, is_admin) VALUES ($4, $1, $2, $3) RETURNING id`, name, hash, req.IsAdmin, models.NewID()).Scan(&id)
 	if err != nil {
 		writeDBErr(w, err)
 		return
@@ -90,7 +90,7 @@ func (c Controller) Create(w http.ResponseWriter, r *http.Request, uid int64) {
 
 // Update renames, resets the password (logging that user out everywhere) or changes the admin flag.
 // An admin cannot remove their own admin flag, so the drive never ends up without an admin.
-func (c Controller) Update(w http.ResponseWriter, r *http.Request, uid int64) {
+func (c Controller) Update(w http.ResponseWriter, r *http.Request, uid string) {
 	id, ok := utils.PathID(w, r)
 	if !ok {
 		return
@@ -140,7 +140,7 @@ func (c Controller) Update(w http.ResponseWriter, r *http.Request, uid int64) {
 
 // Delete only removes users with an empty drive: their files live in Telegram and
 // should be deleted (or downloaded) by that user first, not orphaned in the channel.
-func (c Controller) Delete(w http.ResponseWriter, r *http.Request, uid int64) {
+func (c Controller) Delete(w http.ResponseWriter, r *http.Request, uid string) {
 	id, ok := utils.PathID(w, r)
 	if !ok {
 		return

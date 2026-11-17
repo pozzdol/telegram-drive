@@ -3,7 +3,6 @@ package folder
 
 import (
 	"net/http"
-	"strconv"
 	"strings"
 
 	"telegram-drive/app"
@@ -13,15 +12,15 @@ import (
 
 type Controller struct{ *app.App }
 
-func (c Controller) List(w http.ResponseWriter, r *http.Request, uid int64) {
-	id, _ := strconv.ParseInt(r.URL.Query().Get("folder_id"), 10, 64)
+func (c Controller) List(w http.ResponseWriter, r *http.Request, uid string) {
+	id := r.URL.Query().Get("folder_id") // "" = root
 	ref, err := models.FolderRef(c.DB, uid, id)
 	if err != nil {
 		utils.WriteErr(w, http.StatusNotFound, err.Error())
 		return
 	}
 	type crumb struct {
-		ID   int64  `json:"id"`
+		ID   string `json:"id"`
 		Name string `json:"name"`
 	}
 	out := struct {
@@ -59,7 +58,7 @@ func (c Controller) List(w http.ResponseWriter, r *http.Request, uid int64) {
 }
 
 // GET /api/search?q= — folders and files whose name contains q, across the whole drive.
-func (c Controller) Search(w http.ResponseWriter, r *http.Request, uid int64) {
+func (c Controller) Search(w http.ResponseWriter, r *http.Request, uid string) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	out := struct {
 		Folders []models.Folder `json:"folders"`
@@ -84,10 +83,10 @@ func (c Controller) Search(w http.ResponseWriter, r *http.Request, uid int64) {
 	utils.WriteJSON(w, http.StatusOK, out)
 }
 
-func (c Controller) Create(w http.ResponseWriter, r *http.Request, uid int64) {
+func (c Controller) Create(w http.ResponseWriter, r *http.Request, uid string) {
 	var req struct {
 		Name     string `json:"name"`
-		ParentID int64  `json:"parent_id"`
+		ParentID string `json:"parent_id"` // "" = root
 	}
 	if !utils.ReadJSON(w, r, &req) {
 		return
@@ -102,8 +101,8 @@ func (c Controller) Create(w http.ResponseWriter, r *http.Request, uid int64) {
 		utils.WriteErr(w, http.StatusNotFound, err.Error())
 		return
 	}
-	var id int64
-	if err := c.DB.QueryRow(`INSERT INTO folders (user_id, parent_id, name) VALUES ($1, $2, $3) RETURNING id`, uid, ref, name).Scan(&id); err != nil {
+	id := models.NewID()
+	if _, err := c.DB.Exec(`INSERT INTO folders (id, user_id, parent_id, name) VALUES ($4, $1, $2, $3)`, uid, ref, name, id); err != nil {
 		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -111,14 +110,14 @@ func (c Controller) Create(w http.ResponseWriter, r *http.Request, uid int64) {
 }
 
 // rename and/or move. parent_id 0 moves to root; omit a field to leave it unchanged.
-func (c Controller) Update(w http.ResponseWriter, r *http.Request, uid int64) {
+func (c Controller) Update(w http.ResponseWriter, r *http.Request, uid string) {
 	id, ok := utils.PathID(w, r)
 	if !ok {
 		return
 	}
 	var req struct {
 		Name     *string `json:"name"`
-		ParentID *int64  `json:"parent_id"`
+		ParentID *string `json:"parent_id"` // "" = root
 	}
 	if !utils.ReadJSON(w, r, &req) {
 		return
@@ -144,7 +143,7 @@ func (c Controller) Update(w http.ResponseWriter, r *http.Request, uid int64) {
 		// Refuse moving a folder into itself or one of its own subfolders.
 		var cycle int
 		c.DB.QueryRow(`WITH RECURSIVE up(id) AS (
-				SELECT $1::bigint UNION SELECT parent_id FROM folders JOIN up ON folders.id = up.id WHERE parent_id IS NOT NULL
+				SELECT $1::uuid UNION SELECT parent_id FROM folders JOIN up ON folders.id = up.id WHERE parent_id IS NOT NULL
 			) SELECT count(*) FROM up WHERE id = $2`, ref, id).Scan(&cycle)
 		if cycle > 0 {
 			utils.WriteErr(w, http.StatusBadRequest, "cannot move a folder into itself")
@@ -155,7 +154,7 @@ func (c Controller) Update(w http.ResponseWriter, r *http.Request, uid int64) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (c Controller) Delete(w http.ResponseWriter, r *http.Request, uid int64) {
+func (c Controller) Delete(w http.ResponseWriter, r *http.Request, uid string) {
 	id, ok := utils.PathID(w, r)
 	if !ok {
 		return

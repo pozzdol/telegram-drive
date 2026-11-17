@@ -4,24 +4,25 @@ package models
 import (
 	"database/sql"
 	"errors"
+	"github.com/google/uuid"
 )
 
 type Folder struct {
-	ID        int64  `json:"id"`
-	ParentID  *int64 `json:"parent_id"`
-	Name      string `json:"name"`
-	CreatedAt int64  `json:"created_at"`
+	ID        string  `json:"id"`
+	ParentID  *string `json:"parent_id"`
+	Name      string  `json:"name"`
+	CreatedAt int64   `json:"created_at"`
 }
 
 type File struct {
-	ID        int64  `json:"id"`
-	FolderID  *int64 `json:"folder_id"`
-	Name      string `json:"name"`
-	Size      int64  `json:"size"`
-	Mime      string `json:"mime"`
-	CreatedAt int64  `json:"created_at"`
-	TakenAt   *int64 `json:"taken_at"` // when a photo was taken (EXIF), null if unknown
-	Missing   bool   `json:"missing"`  // the message was deleted in Telegram; only the record is left
+	ID        string  `json:"id"`
+	FolderID  *string `json:"folder_id"`
+	Name      string  `json:"name"`
+	Size      int64   `json:"size"`
+	Mime      string  `json:"mime"`
+	CreatedAt int64   `json:"created_at"`
+	TakenAt   *int64  `json:"taken_at"` // when a photo was taken (EXIF), null if unknown
+	Missing   bool    `json:"missing"`  // the message was deleted in Telegram; only the record is left
 }
 
 type Upload struct {
@@ -31,7 +32,7 @@ type Upload struct {
 	Received int64   `json:"received"`
 	Sent     int64   `json:"sent"`
 	Status   string  `json:"status"`
-	FileID   *int64  `json:"file_id"`
+	FileID   *string `json:"file_id"`
 	Error    *string `json:"error"`
 }
 
@@ -79,15 +80,38 @@ func QueryFiles(db *sql.DB, query string, args ...any) ([]File, error) {
 	return out, rows.Err()
 }
 
-// FolderRef turns a client folder id into a SQL value: 0 means root (NULL),
+// FolderRef turns a client folder id into a SQL value: "" means root (NULL),
 // anything else must be a folder owned by uid.
-func FolderRef(db *sql.DB, uid, id int64) (any, error) {
-	if id == 0 {
+func FolderRef(db *sql.DB, uid, id string) (any, error) {
+	if id == "" {
 		return nil, nil
+	}
+	if !ValidID(id) {
+		return nil, ErrFolderNotFound
 	}
 	var x int
 	if err := db.QueryRow(`SELECT 1 FROM folders WHERE id = $1 AND user_id = $2`, id, uid).Scan(&x); err != nil {
 		return nil, ErrFolderNotFound
 	}
 	return id, nil
+}
+
+// IDs are UUIDv7: random enough that nobody can guess or count them, and ordered by creation
+// time, so new rows land at the end of the primary-key index.
+func NewID() string { return uuid.Must(uuid.NewV7()).String() }
+
+// ValidID reports whether s is a UUID, so malformed ids get a 400/404 instead of a database error.
+func ValidID(s string) bool {
+	_, err := uuid.Parse(s)
+	return err == nil && len(s) == 36
+}
+
+// ValidIDs checks a list of ids from a request body.
+func ValidIDs(ids []string) bool {
+	for _, id := range ids {
+		if !ValidID(id) {
+			return false
+		}
+	}
+	return true
 }

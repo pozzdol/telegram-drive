@@ -22,4 +22,4 @@ type App struct {
 }
 
 // AuthedHandler is a handler behind auth.Controller.Secure; uid is the logged-in user.
-type AuthedHandler func(w http.ResponseWriter, r *http.Request, uid int64)
+type AuthedHandler func(w http.ResponseWriter, r *http.Request, uid string)

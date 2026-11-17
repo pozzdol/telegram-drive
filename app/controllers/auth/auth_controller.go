@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"telegram-drive/app"
+	"telegram-drive/app/models"
 	"telegram-drive/app/utils"
 )
 
@@ -40,7 +41,7 @@ func (c Controller) Secure(next app.AuthedHandler) http.HandlerFunc {
 
 // Admin is Secure plus a check that the user is an admin.
 func (c Controller) Admin(next app.AuthedHandler) http.HandlerFunc {
-	return c.Secure(func(w http.ResponseWriter, r *http.Request, uid int64) {
+	return c.Secure(func(w http.ResponseWriter, r *http.Request, uid string) {
 		var admin bool
 		if c.DB.QueryRow(`SELECT is_admin FROM users WHERE id = $1`, uid).Scan(&admin); !admin {
 			utils.WriteErr(w, http.StatusForbidden, "admin only")
@@ -51,7 +52,7 @@ func (c Controller) Admin(next app.AuthedHandler) http.HandlerFunc {
 }
 
 // Me tells the UI who is logged in and whether to show the admin page.
-func (c Controller) Me(w http.ResponseWriter, r *http.Request, uid int64) {
+func (c Controller) Me(w http.ResponseWriter, r *http.Request, uid string) {
 	var name string
 	var admin bool
 	var tgID *int64
@@ -63,7 +64,7 @@ func (c Controller) Me(w http.ResponseWriter, r *http.Request, uid int64) {
 }
 
 // ChangePassword needs the current password; other sessions of this user are logged out.
-func (c Controller) ChangePassword(w http.ResponseWriter, r *http.Request, uid int64) {
+func (c Controller) ChangePassword(w http.ResponseWriter, r *http.Request, uid string) {
 	var req struct {
 		Current string `json:"current"`
 		New     string `json:"new"`
@@ -106,9 +107,9 @@ func (c Controller) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Only the very first user registers (and becomes admin); everyone else is added from the admin page.
-	var id int64
-	err = c.DB.QueryRow(`INSERT INTO users (username, password_hash, is_admin) SELECT $1, $2, true WHERE NOT EXISTS (SELECT 1 FROM users) RETURNING id`,
-		req.Username, hash).Scan(&id)
+	var id string
+	err = c.DB.QueryRow(`INSERT INTO users (id, username, password_hash, is_admin) SELECT $3, $1, $2, true WHERE NOT EXISTS (SELECT 1 FROM users) RETURNING id`,
+		req.Username, hash, models.NewID()).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		utils.WriteErr(w, http.StatusForbidden, "registration closed")
 		return
@@ -132,7 +133,7 @@ func (c Controller) Login(w http.ResponseWriter, r *http.Request) {
 		utils.WriteErr(w, http.StatusTooManyRequests, "too many failed logins, try again later")
 		return
 	}
-	var uid int64
+	var uid string
 	hash := dummyHash // unknown users cost the same PBKDF2 work, so timing does not reveal usernames
 	err := c.DB.QueryRow(`SELECT id, password_hash FROM users WHERE username = $1`, name).Scan(&uid, &hash)
 	if !checkPassword(hash, req.Password) || err != nil {
@@ -145,7 +146,7 @@ func (c Controller) Login(w http.ResponseWriter, r *http.Request) {
 }
 
 // startSession logs uid in: sets the cookie and returns the token for API clients.
-func (c Controller) startSession(w http.ResponseWriter, r *http.Request, uid int64) {
+func (c Controller) startSession(w http.ResponseWriter, r *http.Request, uid string) {
 	tok, err := newSession(c.DB, uid)
 	if err != nil {
 		utils.ServerErr(w, http.StatusInternalServerError, err)
@@ -162,7 +163,7 @@ func isHTTPS(r *http.Request) bool {
 	return r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 }
 
-func (c Controller) Logout(w http.ResponseWriter, r *http.Request, uid int64) {
+func (c Controller) Logout(w http.ResponseWriter, r *http.Request, uid string) {
 	c.DB.Exec(`DELETE FROM sessions WHERE token_hash = $1`, hashToken(tokenFrom(r)))
 	http.SetCookie(w, &http.Cookie{Name: cookieName, Path: "/", MaxAge: -1})
 	w.WriteHeader(http.StatusNoContent)

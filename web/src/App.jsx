@@ -17,7 +17,7 @@ const VIEWS = ['photos', 'users']
 const readRoute = () => {
   const p = new URLSearchParams(location.search)
   const v = p.get('view')
-  return { view: VIEWS.includes(v) ? v : 'drive', folder: Number(p.get('folder')) || 0, q: p.get('q') || '' }
+  return { view: VIEWS.includes(v) ? v : 'drive', folder: p.get('folder') || '', q: p.get('q') || '' }
 }
 const routeURL = r => {
   const p = new URLSearchParams()
@@ -56,7 +56,7 @@ export default function App() {
   const queue = useRef(Promise.resolve())
 
   const nav = (r, replace) => {
-    const next = { view: 'drive', folder: 0, q: '', ...r }
+    const next = { view: 'drive', folder: '', q: '', ...r } // folder '' = root
     history[replace ? 'replaceState' : 'pushState'](null, '', routeURL(next))
     setRoute(next)
     setQuery(next.q)
@@ -120,7 +120,7 @@ export default function App() {
   // ---- actions ----
   const newFolder = async () => {
     const name = await askUser({ title: 'Folder baru', input: true, value: 'Folder tanpa judul', confirm: 'Buat' })
-    if (name) run(() => api('/api/folders', { method: 'POST', body: { name, parent_id: route.view === 'drive' && !route.q ? route.folder : 0 } }))
+    if (name) run(() => api('/api/folders', { method: 'POST', body: { name, parent_id: route.view === 'drive' && !route.q ? route.folder : '' } }))
   }
   const rename = async (type, it) => {
     const name = await askUser({ title: 'Ganti nama', input: true, value: it.name, selectBase: type === 'file', confirm: 'Simpan' })
@@ -250,7 +250,7 @@ export default function App() {
         ? { label: 'Buka', icon: FolderOpen, onSelect: () => nav({ folder: it.id }) }
         : { label: 'Buka', icon: FolderOpen, onSelect: () => openFile(it, data?.files || [it]) },
       ...(type === 'file' && !it.missing ? [{ label: 'Download', icon: Download, onSelect: () => download(it) }] : []),
-      ...(route.q ? [{ label: 'Tampilkan lokasi', icon: FolderInput, onSelect: () => nav({ folder: type === 'file' ? it.folder_id || 0 : it.parent_id || 0 }) }] : []),
+      ...(route.q ? [{ label: 'Tampilkan lokasi', icon: FolderInput, onSelect: () => nav({ folder: (type === 'file' ? it.folder_id : it.parent_id) || '' }) }] : []),
       '-',
       { label: 'Ganti nama', icon: Pencil, onSelect: () => rename(type, it) },
       { label: 'Pindahkan', icon: FolderInput, onSelect: () => setMoving([{ type, item: it }]) },
@@ -274,7 +274,7 @@ export default function App() {
 
   // One file at a time: several 1 GB uploads in parallel only slow each other down.
   const startUploads = list => {
-    const target = route.view === 'drive' && !route.q ? route.folder : 0
+    const target = route.view === 'drive' && !route.q ? route.folder : ''
     for (const file of list) {
       const key = crypto.randomUUID()
       const update = patch => setUploads(us => us.map(x => (x.key === key ? { ...x, ...patch } : x)))

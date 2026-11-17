@@ -3,6 +3,7 @@ module telegram-drive
 go 1.27.4
 
 require (
+	github.com/google/uuid v1.6.0
 	github.com/gotd/td v0.166.1
 	github.com/jackc/pgx/v5 v5.13.0
 	golang.org/x/image v0.48.0
@@ -20,7 +21,6 @@ require (
 	github.com/go-faster/jx v1.2.0 // indirect
 	github.com/go-faster/xor v1.0.0 // indirect
 	github.com/go-faster/yaml v0.4.6 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/gotd/ige v0.3.0 // indirect
 	github.com/gotd/log v0.1.0 // indirect
 	github.com/gotd/neo v0.1.5 // indirect

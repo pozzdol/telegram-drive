@@ -180,7 +180,7 @@ export function Crumbs({ path, onGo, root = 'Drive saya', small }) {
   useLayoutEffect(() => { ref.current.scrollLeft = ref.current.scrollWidth }, [path])
   return (
     <nav ref={ref} className={`crumbs${small ? ' small' : ''}`} aria-label="Lokasi folder">
-      <button onClick={() => onGo(0)} aria-current={path.length ? undefined : 'page'}>{root}</button>
+      <button onClick={() => onGo('')} aria-current={path.length ? undefined : 'page'}>{root}</button>
       {path.map((c, i) => (
         <Fragment key={c.id}>
           <ChevronRight size={small ? 14 : 18} className="sep" aria-hidden />
@@ -194,7 +194,7 @@ export function Crumbs({ path, onGo, root = 'Drive saya', small }) {
 // items: [{ type, item }]. Starts in the folder the items are in.
 export function MoveDialog({ items, onMove, onClose }) {
   const ref = useModal()
-  const [at, setAt] = useState(() => (items[0].type === 'file' ? items[0].item.folder_id : items[0].item.parent_id) ?? 0)
+  const [at, setAt] = useState(() => (items[0].type === 'file' ? items[0].item.folder_id : items[0].item.parent_id) ?? '') // '' = root
   const [d, setD] = useState(null)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
@@ -209,7 +209,7 @@ export function MoveDialog({ items, onMove, onClose }) {
   const folders = d?.folders.filter(f => !moving.has(f.id)) || []
   const from = items[0].type === 'file' ? items[0].item.folder_id : items[0].item.parent_id
   const same = items.every(x => (x.type === 'file' ? x.item.folder_id : x.item.parent_id) === from)
-  const here = same && (from ?? 0) === at // already there: nothing to do
+  const here = same && (from ?? '') === at // already there: nothing to do
   const submit = async () => {
     setBusy(true)
     setErr('')

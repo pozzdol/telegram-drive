@@ -27,7 +27,7 @@ import (
 type Controller struct{ *app.App }
 
 // getFile loads a file row owned by uid, writing 404 if missing.
-func (c Controller) getFile(w http.ResponseWriter, r *http.Request, uid int64) (f models.File, msgID int, ok bool) {
+func (c Controller) getFile(w http.ResponseWriter, r *http.Request, uid string) (f models.File, msgID int, ok bool) {
 	id, ok := utils.PathID(w, r)
 	if !ok {
 		return f, 0, false
@@ -42,7 +42,7 @@ func (c Controller) getFile(w http.ResponseWriter, r *http.Request, uid int64) (
 }
 
 // GET /api/files/{id}[?inline=1] — supports Range, so videos can seek and downloads can resume.
-func (c Controller) Download(w http.ResponseWriter, r *http.Request, uid int64) {
+func (c Controller) Download(w http.ResponseWriter, r *http.Request, uid string) {
 	f, msgID, ok := c.getFile(w, r, uid)
 	if !ok {
 		return
@@ -81,7 +81,7 @@ func (c Controller) deleteMessages(ctx context.Context, msgs []int) error {
 
 // openFailed answers a failed Telegram read. A deleted message is recorded on the file and
 // reported as 410 Gone, so the UI can say so and offer to remove the record.
-func (c Controller) openFailed(w http.ResponseWriter, fileID int64, err error) {
+func (c Controller) openFailed(w http.ResponseWriter, fileID string, err error) {
 	if errors.Is(err, tgclient.ErrMissing) {
 		c.DB.Exec(`UPDATE files SET missing_at = extract(epoch FROM now())::bigint WHERE id = $1 AND missing_at IS NULL`, fileID)
 		utils.WriteJSON(w, http.StatusGone, map[string]any{"error": "this file no longer exists in Telegram", "missing": true})
@@ -91,7 +91,7 @@ func (c Controller) openFailed(w http.ResponseWriter, fileID int64, err error) {
 }
 
 // POST /api/files/{id}/check — asks Telegram whether the file's message still exists.
-func (c Controller) Check(w http.ResponseWriter, r *http.Request, uid int64) {
+func (c Controller) Check(w http.ResponseWriter, r *http.Request, uid string) {
 	f, msgID, ok := c.getFile(w, r, uid)
 	if !ok {
 		return
@@ -101,12 +101,12 @@ func (c Controller) Check(w http.ResponseWriter, r *http.Request, uid int64) {
 		utils.ServerErr(w, http.StatusBadGateway, err)
 		return
 	}
-	c.setMissing(map[int64]bool{f.ID: !present[msgID]})
+	c.setMissing(map[string]bool{f.ID: !present[msgID]})
 	utils.WriteJSON(w, http.StatusOK, map[string]bool{"missing": !present[msgID]})
 }
 
 // setMissing records which files are gone from Telegram (true) or present again (false).
-func (c Controller) setMissing(state map[int64]bool) {
+func (c Controller) setMissing(state map[string]bool) {
 	for id, missing := range state {
 		if missing {
 			c.DB.Exec(`UPDATE files SET missing_at = extract(epoch FROM now())::bigint WHERE id = $1 AND missing_at IS NULL`, id)
@@ -143,10 +143,10 @@ func (c Controller) checkAll() (missing int, err error) {
 	if err != nil {
 		return 0, err
 	}
-	byMsg := map[int]int64{}
+	byMsg := map[int]string{}
 	var msgs []int
 	for rows.Next() {
-		var id int64
+		var id string
 		var msg int
 		rows.Scan(&id, &msg)
 		byMsg[msg] = id
@@ -159,7 +159,7 @@ func (c Controller) checkAll() (missing int, err error) {
 		if err != nil {
 			return missing, err
 		}
-		state := map[int64]bool{}
+		state := map[string]bool{}
 		for msg, ok := range present {
 			state[byMsg[msg]] = !ok
 			if !ok {
@@ -172,8 +172,8 @@ func (c Controller) checkAll() (missing int, err error) {
 }
 
 // ThumbPath is where the cached preview of file id lives.
-func ThumbPath(dir string, id int64) string {
-	return filepath.Join(dir, strconv.FormatInt(id, 10)+".jpg")
+func ThumbPath(dir string, id string) string {
+	return filepath.Join(dir, id+".jpg") // id is a validated UUID, so it cannot contain a path
 }
 
 // Limits concurrent thumbnail builds: each one downloads the full image from Telegram.
@@ -181,7 +181,7 @@ var thumbSlots = make(chan struct{}, 3)
 
 // GET /api/files/{id}/thumb — 480 px JPEG preview, built once and cached in data/thumbs.
 // The UI adds ?v=<created_at> so the immutable cache never shows a reused id's old picture.
-func (c Controller) Thumb(w http.ResponseWriter, r *http.Request, uid int64) {
+func (c Controller) Thumb(w http.ResponseWriter, r *http.Request, uid string) {
 	f, msgID, ok := c.getFile(w, r, uid)
 	if !ok {
 		return
@@ -224,7 +224,7 @@ func isVideo(mime string) bool { return strings.HasPrefix(mime, "video/") }
 // PUT /api/files/{id}/thumb — a JPEG frame the browser grabbed from the video.
 // ponytail: browser decodes the video (any codec it can play), so the server needs no ffmpeg.
 // Add an ffmpeg path only if previews must exist before anyone opens the drive in a browser.
-func (c Controller) PutThumb(w http.ResponseWriter, r *http.Request, uid int64) {
+func (c Controller) PutThumb(w http.ResponseWriter, r *http.Request, uid string) {
 	f, _, ok := c.getFile(w, r, uid)
 	if !ok {
 		return
@@ -263,11 +263,11 @@ func (c Controller) PutThumb(w http.ResponseWriter, r *http.Request, uid int64) 
 // POST /api/move {"files":[ids],"folders":[ids],"to":folderID} — moves several items at once;
 // "to" 0 is the root. All or nothing: one transaction, and a folder can never go into itself
 // or one of its own subfolders.
-func (c Controller) BulkMove(w http.ResponseWriter, r *http.Request, uid int64) {
+func (c Controller) BulkMove(w http.ResponseWriter, r *http.Request, uid string) {
 	var req struct {
-		Files   []int64 `json:"files"`
-		Folders []int64 `json:"folders"`
-		To      int64   `json:"to"`
+		Files   []string `json:"files"`
+		Folders []string `json:"folders"`
+		To      string   `json:"to"` // "" = root
 	}
 	if !utils.ReadJSON(w, r, &req) {
 		return
@@ -276,23 +276,27 @@ func (c Controller) BulkMove(w http.ResponseWriter, r *http.Request, uid int64) 
 		utils.WriteErr(w, http.StatusBadRequest, "select 1-5000 items")
 		return
 	}
+	if !models.ValidIDs(req.Files) || !models.ValidIDs(req.Folders) {
+		utils.WriteErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
 	if req.Files == nil {
-		req.Files = []int64{}
+		req.Files = []string{}
 	}
 	if req.Folders == nil {
-		req.Folders = []int64{}
+		req.Folders = []string{}
 	}
 	ref, err := models.FolderRef(c.DB, uid, req.To)
 	if err != nil {
 		utils.WriteErr(w, http.StatusNotFound, err.Error())
 		return
 	}
-	if req.To != 0 && len(req.Folders) > 0 {
+	if req.To != "" && len(req.Folders) > 0 {
 		// Walk up from the target: if a selected folder is on the way, the move would make a loop.
 		var loops int
 		if err := c.DB.QueryRow(`WITH RECURSIVE up(id) AS (
-				SELECT $1::bigint UNION SELECT parent_id FROM folders JOIN up ON folders.id = up.id WHERE parent_id IS NOT NULL
-			) SELECT count(*) FROM up WHERE id = ANY($2)`, req.To, req.Folders).Scan(&loops); err != nil {
+				SELECT $1::uuid UNION SELECT parent_id FROM folders JOIN up ON folders.id = up.id WHERE parent_id IS NOT NULL
+			) SELECT count(*) FROM up WHERE id = ANY($2::uuid[])`, req.To, req.Folders).Scan(&loops); err != nil {
 			utils.ServerErr(w, http.StatusInternalServerError, err)
 			return
 		}
@@ -307,12 +311,12 @@ func (c Controller) BulkMove(w http.ResponseWriter, r *http.Request, uid int64) 
 		return
 	}
 	defer tx.Rollback()
-	files, err := tx.Exec(`UPDATE files SET folder_id = $1 WHERE user_id = $2 AND id = ANY($3)`, ref, uid, req.Files)
+	files, err := tx.Exec(`UPDATE files SET folder_id = $1 WHERE user_id = $2 AND id = ANY($3::uuid[])`, ref, uid, req.Files)
 	if err != nil {
 		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	folders, err := tx.Exec(`UPDATE folders SET parent_id = $1 WHERE user_id = $2 AND id = ANY($3)`, ref, uid, req.Folders)
+	folders, err := tx.Exec(`UPDATE folders SET parent_id = $1 WHERE user_id = $2 AND id = ANY($3::uuid[])`, ref, uid, req.Folders)
 	if err != nil {
 		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
@@ -329,10 +333,10 @@ func (c Controller) BulkMove(w http.ResponseWriter, r *http.Request, uid int64) 
 // POST /api/delete {"files":[ids],"folders":[ids]} — deletes the files and the folders with
 // everything inside them (subfolders and their files). Telegram messages go first, 100 at a
 // time; rows are removed only for messages that are gone, so a failure never orphans bytes.
-func (c Controller) BulkDelete(w http.ResponseWriter, r *http.Request, uid int64) {
+func (c Controller) BulkDelete(w http.ResponseWriter, r *http.Request, uid string) {
 	var req struct {
-		Files   []int64 `json:"files"`
-		Folders []int64 `json:"folders"`
+		Files   []string `json:"files"`
+		Folders []string `json:"folders"`
 	}
 	if !utils.ReadJSON(w, r, &req) {
 		return
@@ -341,17 +345,21 @@ func (c Controller) BulkDelete(w http.ResponseWriter, r *http.Request, uid int64
 		utils.WriteErr(w, http.StatusBadRequest, "select 1-5000 items")
 		return
 	}
+	if !models.ValidIDs(req.Files) || !models.ValidIDs(req.Folders) {
+		utils.WriteErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
 	if req.Files == nil {
-		req.Files = []int64{}
+		req.Files = []string{}
 	}
 	if req.Folders == nil {
-		req.Folders = []int64{}
+		req.Folders = []string{}
 	}
 
 	// The selected folders and every folder below them, limited to this user's own.
-	var folders []int64
+	var folders []string
 	rows, err := c.DB.Query(`WITH RECURSIVE t(id) AS (
-			SELECT id FROM folders WHERE user_id = $1 AND id = ANY($2)
+			SELECT id FROM folders WHERE user_id = $1 AND id = ANY($2::uuid[])
 			UNION SELECT f.id FROM folders f JOIN t ON f.parent_id = t.id
 		) SELECT id FROM t`, uid, req.Folders)
 	if err != nil {
@@ -359,22 +367,22 @@ func (c Controller) BulkDelete(w http.ResponseWriter, r *http.Request, uid int64
 		return
 	}
 	for rows.Next() {
-		var id int64
+		var id string
 		rows.Scan(&id)
 		folders = append(folders, id)
 	}
 	rows.Close()
 	if folders == nil {
-		folders = []int64{}
+		folders = []string{}
 	}
 
 	type victim struct {
-		id      int64
+		id      string
 		msg     int
 		missing bool
 	}
 	var files []victim
-	rows, err = c.DB.Query(`SELECT id, msg_id, missing_at IS NOT NULL FROM files WHERE user_id = $1 AND (id = ANY($2) OR folder_id = ANY($3))`,
+	rows, err = c.DB.Query(`SELECT id, msg_id, missing_at IS NOT NULL FROM files WHERE user_id = $1 AND (id = ANY($2::uuid[]) OR folder_id = ANY($3::uuid[]))`,
 		uid, req.Files, folders)
 	if err != nil {
 		utils.ServerErr(w, http.StatusInternalServerError, err)
@@ -389,7 +397,7 @@ func (c Controller) BulkDelete(w http.ResponseWriter, r *http.Request, uid int64
 
 	for start := 0; start < len(files); start += 100 {
 		batch := files[start:min(start+100, len(files))]
-		ids, msgs := make([]int64, len(batch)), make([]int, 0, len(batch))
+		ids, msgs := make([]string, len(batch)), make([]int, 0, len(batch))
 		for i, v := range batch {
 			ids[i] = v.id
 			if !v.missing { // already gone from Telegram: only the record is left
@@ -401,13 +409,13 @@ func (c Controller) BulkDelete(w http.ResponseWriter, r *http.Request, uid int64
 			utils.WriteErr(w, http.StatusBadGateway, fmt.Sprintf("deleted %d of %d files, then Telegram failed; try again", start, len(files)))
 			return
 		}
-		c.DB.Exec(`DELETE FROM files WHERE id = ANY($1)`, ids)
+		c.DB.Exec(`DELETE FROM files WHERE id = ANY($1::uuid[])`, ids)
 		for _, id := range ids {
 			os.Remove(ThumbPath(c.ThumbDir, id))
 		}
 	}
 	// One statement: parent and child folders go together, so the parent_id check passes.
-	if _, err := c.DB.Exec(`DELETE FROM folders WHERE user_id = $1 AND id = ANY($2)`, uid, folders); err != nil {
+	if _, err := c.DB.Exec(`DELETE FROM folders WHERE user_id = $1 AND id = ANY($2::uuid[])`, uid, folders); err != nil {
 		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -415,7 +423,7 @@ func (c Controller) BulkDelete(w http.ResponseWriter, r *http.Request, uid int64
 }
 
 // GET /api/media?offset=&limit= — photos and videos across all folders, newest first (gallery view).
-func (c Controller) Media(w http.ResponseWriter, r *http.Request, uid int64) {
+func (c Controller) Media(w http.ResponseWriter, r *http.Request, uid string) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit <= 0 || limit > 500 {
 		limit = 200
@@ -463,7 +471,7 @@ func (c Controller) BackfillTakenAt() {
 }
 
 // GET /api/usage — how much is stored, for the sidebar.
-func (c Controller) Usage(w http.ResponseWriter, r *http.Request, uid int64) {
+func (c Controller) Usage(w http.ResponseWriter, r *http.Request, uid string) {
 	var n, bytes int64
 	c.DB.QueryRow(`SELECT count(*), coalesce(sum(size), 0)::bigint FROM files WHERE user_id = $1`, uid).Scan(&n, &bytes)
 	utils.WriteJSON(w, http.StatusOK, map[string]int64{"files": n, "bytes": bytes})
@@ -476,14 +484,14 @@ func inlineSafe(m string) bool {
 }
 
 // rename and/or move. folder_id 0 moves to root; omit a field to leave it unchanged.
-func (c Controller) Update(w http.ResponseWriter, r *http.Request, uid int64) {
+func (c Controller) Update(w http.ResponseWriter, r *http.Request, uid string) {
 	f, _, ok := c.getFile(w, r, uid)
 	if !ok {
 		return
 	}
 	var req struct {
 		Name     *string `json:"name"`
-		FolderID *int64  `json:"folder_id"`
+		FolderID *string `json:"folder_id"` // "" = root
 	}
 	if !utils.ReadJSON(w, r, &req) {
 		return
@@ -507,7 +515,7 @@ func (c Controller) Update(w http.ResponseWriter, r *http.Request, uid int64) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (c Controller) Delete(w http.ResponseWriter, r *http.Request, uid int64) {
+func (c Controller) Delete(w http.ResponseWriter, r *http.Request, uid string) {
 	f, msgID, ok := c.getFile(w, r, uid)
 	if !ok {
 		return

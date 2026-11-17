@@ -101,7 +101,7 @@ func (c Controller) TelegramLogin(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var uid int64
+	var uid string
 	if err := c.DB.QueryRow(`SELECT id FROM users WHERE telegram_id = $1`, tgID).Scan(&uid); err != nil {
 		utils.WriteErr(w, http.StatusForbidden, "this Telegram account is not linked to a drive account")
 		return
@@ -110,7 +110,7 @@ func (c Controller) TelegramLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 // PUT /api/me/telegram — link the Telegram account from the popup to the logged-in user.
-func (c Controller) LinkTelegram(w http.ResponseWriter, r *http.Request, uid int64) {
+func (c Controller) LinkTelegram(w http.ResponseWriter, r *http.Request, uid string) {
 	tgID, ok := c.readTelegram(w, r)
 	if !ok {
 		return
@@ -127,7 +127,7 @@ func (c Controller) LinkTelegram(w http.ResponseWriter, r *http.Request, uid int
 }
 
 // DELETE /api/me/telegram — unlink; password login keeps working.
-func (c Controller) UnlinkTelegram(w http.ResponseWriter, r *http.Request, uid int64) {
+func (c Controller) UnlinkTelegram(w http.ResponseWriter, r *http.Request, uid string) {
 	c.DB.Exec(`UPDATE users SET telegram_id = NULL WHERE id = $1`, uid)
 	w.WriteHeader(http.StatusNoContent)
 }

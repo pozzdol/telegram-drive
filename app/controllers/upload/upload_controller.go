@@ -42,12 +42,12 @@ func (c Controller) partPath(id string) string { return filepath.Join(c.UploadDi
 // maxOpenUploads caps unfinished uploads per user (each holds up to its file size on disk).
 const maxOpenUploads = 4
 
-func (c Controller) Create(w http.ResponseWriter, r *http.Request, uid int64) {
+func (c Controller) Create(w http.ResponseWriter, r *http.Request, uid string) {
 	var req struct {
 		Name     string `json:"name"`
 		Size     int64  `json:"size"`
 		Mime     string `json:"mime"`
-		FolderID int64  `json:"folder_id"`
+		FolderID string `json:"folder_id"` // "" = root
 	}
 	if !utils.ReadJSON(w, r, &req) {
 		return
@@ -106,13 +106,13 @@ func (c Controller) Create(w http.ResponseWriter, r *http.Request, uid int64) {
 	utils.WriteJSON(w, http.StatusCreated, map[string]any{"id": id, "chunk_size": uploadChunk})
 }
 
-func (c Controller) getUpload(uid int64, id string) (u models.Upload, err error) {
+func (c Controller) getUpload(uid string, id string) (u models.Upload, err error) {
 	err = c.DB.QueryRow(`SELECT id, name, size, received, sent, status, file_id, error FROM uploads WHERE id = $1 AND user_id = $2`,
 		id, uid).Scan(&u.ID, &u.Name, &u.Size, &u.Received, &u.Sent, &u.Status, &u.FileID, &u.Error)
 	return u, err
 }
 
-func (c Controller) Status(w http.ResponseWriter, r *http.Request, uid int64) {
+func (c Controller) Status(w http.ResponseWriter, r *http.Request, uid string) {
 	u, err := c.getUpload(uid, r.PathValue("id"))
 	if err != nil {
 		utils.WriteErr(w, http.StatusNotFound, "upload not found")
@@ -123,7 +123,7 @@ func (c Controller) Status(w http.ResponseWriter, r *http.Request, uid int64) {
 
 // PUT /api/uploads/{id}?offset=N — offset must equal what the server already has, so a client
 // that lost a response just asks GET for "received" and continues from there.
-func (c Controller) Chunk(w http.ResponseWriter, r *http.Request, uid int64) {
+func (c Controller) Chunk(w http.ResponseWriter, r *http.Request, uid string) {
 	u, err := c.getUpload(uid, r.PathValue("id"))
 	if err != nil {
 		utils.WriteErr(w, http.StatusNotFound, "upload not found")
@@ -174,7 +174,7 @@ func (c Controller) Chunk(w http.ResponseWriter, r *http.Request, uid int64) {
 // sendUpload pushes a fully received upload to Telegram and creates the file row.
 func (c Controller) sendUpload(id string) {
 	var uid, size int64
-	var folderID *int64
+	var folderID *string
 	var name, mimeType string
 	if err := c.DB.QueryRow(`SELECT user_id, folder_id, name, size, mime FROM uploads WHERE id = $1`, id).
 		Scan(&uid, &folderID, &name, &size, &mimeType); err != nil {
@@ -216,9 +216,9 @@ func (c Controller) sendUpload(id string) {
 				f.Close()
 			}
 		}
-		var fileID int64
-		err = c.DB.QueryRow(`INSERT INTO files (user_id, folder_id, name, size, mime, msg_id, taken_at) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-			uid, folderID, name, size, mimeType, msgID, taken).Scan(&fileID)
+		fileID := models.NewID()
+		_, err = c.DB.Exec(`INSERT INTO files (id, user_id, folder_id, name, size, mime, msg_id, taken_at) VALUES ($8, $1, $2, $3, $4, $5, $6, $7)`,
+			uid, folderID, name, size, mimeType, msgID, taken, fileID)
 		if err != nil {
 			c.TG.Delete(context.Background(), msgID) // e.g. folder deleted meanwhile; don't leave an orphan
 		} else {

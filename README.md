@@ -172,9 +172,9 @@ Authentication uses the `token` cookie set by login, or `Authorization: Bearer <
 | POST | `/api/admin/users` | `{"username","password","is_admin"}` | Admin only |
 | PATCH | `/api/admin/users/{id}` | `{"username"?,"password"?,"is_admin"?}` | Admin only. A password reset logs that user out; admins cannot demote themselves |
 | DELETE | `/api/admin/users/{id}` | | Admin only. `409` while the user still has files; admins cannot delete themselves |
-| GET | `/api/list?folder_id=` | | `{path, folders, files}`; empty or `0` means root |
+| GET | `/api/list?folder_id=` | | `{path, folders, files}`; empty means root |
 | POST | `/api/folders` | `{"name","parent_id"}` | |
-| PATCH | `/api/folders/{id}` | `{"name"?, "parent_id"?}` | Rename and/or move; `parent_id: 0` means root |
+| PATCH | `/api/folders/{id}` | `{"name"?, "parent_id"?}` | Rename and/or move; `parent_id: ""` means root |
 | DELETE | `/api/folders/{id}` | | Empty folders only, otherwise `409` |
 | POST | `/api/uploads` | `{"name","size","mime","folder_id"}` | Starts a chunked upload |
 | PUT | `/api/uploads/{id}?offset=` | raw bytes | At most `chunk_size` per request |
@@ -188,7 +188,7 @@ Authentication uses the `token` cookie set by login, or `Authorization: Bearer <
 | PATCH | `/api/files/{id}` | `{"name"?, "folder_id"?}` | Rename and/or move |
 | DELETE | `/api/files/{id}` | | Also deletes the message in the channel (skipped when it is already gone) |
 | POST | `/api/files/{id}/check` | | Asks Telegram whether the file's message still exists: `{missing}` |
-| POST | `/api/move` | `{"files":[ids],"folders":[ids],"to":id}` | Bulk move into one folder (`0` = root), in one transaction; `400` if a folder would go into itself or its subfolder |
+| POST | `/api/move` | `{"files":[ids],"folders":[ids],"to":id}` | Bulk move into one folder (`""` = root), in one transaction; `400` if a folder would go into itself or its subfolder |
 | POST | `/api/delete` | `{"files":[ids],"folders":[ids]}` | Bulk delete. Folders go with everything inside them; Telegram messages are deleted first, 100 per call |
 
 ## Contributing
@@ -208,6 +208,12 @@ CI runs the same checks on every push and pull request. Keep changes small and f
 ## License
 
 [MIT](LICENSE)
+
+## IDs
+
+Users, folders and files are identified by **UUIDv7** (`0190a3b2-…`): nobody can guess or count another family member's files from an id, and because UUIDv7 starts with a timestamp, new rows still land at the end of the primary-key index. The server creates them (`models.NewID`); the root folder is `""` in the API (`folder_id`, `parent_id`, `to`).
+
+Databases created before this change (numeric ids) are converted once with `deploy/migrate-uuid.sql`. Stop the service, back up with `pg_dump`, run the script with `psql -v ON_ERROR_STOP=1 -f`, delete `data/thumbs/*`, then start the new version. The script runs in one transaction and refuses to run twice.
 
 ## Files deleted in Telegram
 

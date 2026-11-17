@@ -3,10 +3,10 @@ package utils
 
 import (
 	"encoding/json"
+	"github.com/google/uuid"
 	"log"
 	"mime"
 	"net/http"
-	"strconv"
 	"strings"
 )
 
@@ -46,14 +46,14 @@ func ReadJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	return true
 }
 
-// PathID parses the {id} path segment; on failure it writes 400 and returns false.
-func PathID(w http.ResponseWriter, r *http.Request) (int64, bool) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil || id <= 0 {
+// PathID reads the {id} path segment, a UUID; on failure it writes 400 and returns false.
+func PathID(w http.ResponseWriter, r *http.Request) (string, bool) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
 		WriteErr(w, http.StatusBadRequest, "invalid id")
-		return 0, false
+		return "", false
 	}
-	return id, true
+	return id.String(), true
 }
 
 // CleanName trims a file/folder name and checks it is 1-255 chars.

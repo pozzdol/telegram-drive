@@ -55,7 +55,7 @@ func HashPassword(pw string) (string, error) {
 }
 
 // SetPassword replaces the hash; the caller decides which sessions to end.
-func SetPassword(db *sql.DB, uid int64, pw string) error {
+func SetPassword(db *sql.DB, uid string, pw string) error {
 	hash, err := HashPassword(pw)
 	if err != nil {
 		return err
@@ -75,7 +75,7 @@ func hashToken(t string) string {
 }
 
 // newSession stores only the token's hash, so a leaked DB file cannot be used to log in.
-func newSession(db *sql.DB, uid int64) (string, error) {
+func newSession(db *sql.DB, uid string) (string, error) {
 	now := time.Now()
 	db.Exec(`DELETE FROM sessions WHERE expires_at <= $1`, now.Unix())
 	tok := rand.Text()
@@ -84,11 +84,11 @@ func newSession(db *sql.DB, uid int64) (string, error) {
 	return tok, err
 }
 
-func userForToken(db *sql.DB, tok string) (int64, error) {
+func userForToken(db *sql.DB, tok string) (string, error) {
 	if tok == "" {
-		return 0, errors.New("no token")
+		return "", errors.New("no token")
 	}
-	var uid int64
+	var uid string
 	err := db.QueryRow(`SELECT user_id FROM sessions WHERE token_hash = $1 AND expires_at > $2`,
 		hashToken(tok), time.Now().Unix()).Scan(&uid)
 	return uid, err
