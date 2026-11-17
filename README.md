@@ -4,7 +4,7 @@ A self-hosted cloud drive that stores your files in a private Telegram channel. 
 
 It has a web UI (in Indonesian) that should feel familiar if you use Google Drive, plus a Google Photos-style gallery.
 
-- **Drive.** Folders, list and grid views, sort, search, rename, move, delete, drag and drop upload, right-click menus.
+- **Drive.** Folders, list and grid views, sort, search, rename, move, delete, drag and drop upload, right-click menus. Select with Ctrl/Cmd+A, Ctrl/Cmd+click and Shift+click, then delete files and whole folders at once.
 - **Photos.** Every photo and video in one timeline, grouped by the day it was taken (EXIF date for JPEGs), with a full-screen viewer, swipe and keyboard navigation.
 - **Previews.** Image thumbnails made on the server; video thumbnails made in the browser, so no ffmpeg is needed.
 - **Big files.** Chunked, resumable uploads up to 2 GB per file (4 GB with Telegram Premium). Downloads support Range requests, so videos stream and seek.
@@ -173,6 +173,7 @@ Authentication uses the `token` cookie set by login, or `Authorization: Bearer <
 | GET | `/api/usage` | | Number of files and total bytes stored |
 | PATCH | `/api/files/{id}` | `{"name"?, "folder_id"?}` | Rename and/or move |
 | DELETE | `/api/files/{id}` | | Also deletes the message in the channel |
+| POST | `/api/delete` | `{"files":[ids],"folders":[ids]}` | Bulk delete. Folders go with everything inside them; Telegram messages are deleted first, 100 per call |
 
 ## Contributing
 
@@ -196,5 +197,5 @@ CI runs the same checks on every push and pull request. Keep changes small and f
 
 - Downloads fetch 8 chunks of 1 MiB in parallel, and uploads to Telegram use 8 threads. Speed is then limited by the server's own connection: on a ~3.6 MB/s home line, a 1 GB file takes about 5 minutes each way. On a VPS with a faster line it gets much quicker.
 - During an upload, the server needs free disk space at least as large as the file (`data/uploads/`).
-- Files are limited to 2 GB (4 GB with Premium). There is no recursive folder delete, no automatic `FLOOD_WAIT` handling, and no login rate limiting.
+- Files are limited to 2 GB (4 GB with Premium). There is no automatic `FLOOD_WAIT` handling, and no login rate limiting.
 - Cloudflare's terms discourage serving large amounts of video or file traffic through its CDN and Tunnel. For heavy personal use this is usually fine, but it is a risk.

@@ -155,8 +155,9 @@ func (c *Client) Open(ctx context.Context, msgID int, parallel int) (io.ReadSeek
 	}}, nil
 }
 
-func (c *Client) Delete(ctx context.Context, msgID int) error {
-	_, err := c.api.ChannelsDeleteMessages(ctx, &tg.ChannelsDeleteMessagesRequest{Channel: c.channel, ID: []int{msgID}})
+// Delete removes messages from the storage channel. Telegram accepts up to 100 ids per call.
+func (c *Client) Delete(ctx context.Context, msgIDs ...int) error {
+	_, err := c.api.ChannelsDeleteMessages(ctx, &tg.ChannelsDeleteMessagesRequest{Channel: c.channel, ID: msgIDs})
 	return err
 }
 

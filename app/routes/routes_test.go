@@ -120,6 +120,22 @@ func TestAuthAndFolders(t *testing.T) {
 		t.Fatalf("upload status wrong: %v", out)
 	}
 
+	// Bulk delete removes a folder with everything below it, and only the caller's folders.
+	_, out = call("POST", "/api/folders", `{"name":"X"}`)
+	idX := itoa(int(out["id"].(float64)))
+	_, out = call("POST", "/api/folders", `{"name":"Y","parent_id":`+idX+`}`)
+	idY := itoa(int(out["id"].(float64)))
+	call("POST", "/api/folders", `{"name":"Z","parent_id":`+idY+`}`)
+	c, _ = call("POST", "/api/delete", `{}`)
+	expect(400, c, "bulk delete nothing")
+	c, out = call("POST", "/api/delete", `{"folders":[`+idX+`, 999999]}`)
+	expect(200, c, "bulk delete folder tree")
+	if out["folders"].(float64) != 3 || out["files"].(float64) != 0 {
+		t.Fatalf("bulk delete counts wrong: %v", out)
+	}
+	c, _ = call("GET", "/api/list?folder_id="+idY, "")
+	expect(404, c, "list deleted subfolder")
+
 	// Family accounts: admin adds a user, who sees an empty private drive and no admin page.
 	c, out = call("GET", "/api/me", "")
 	if out["is_admin"] != true {

@@ -269,6 +269,15 @@ button.name span { overflow: hidden; text-overflow: ellipsis; white-space: nowra
 .folder-chip .name { min-width: 0; }
 .file-card { display: flex; flex-direction: column; border-radius: var(--radius-md); background: var(--color-paper-2); overflow: hidden; }
 .file-card:hover { background: var(--color-paper-3); }
+/* selection: Ctrl/Cmd+A, Ctrl/Cmd+click, Shift+click */
+.list tbody tr, .folder-chip, .file-card { user-select: none; }
+.list tbody tr.selected, .list tbody tr.selected:hover,
+.folder-chip.selected, .file-card.selected { background: var(--color-accent-soft); color: var(--color-accent-soft-ink); }
+.file-card.selected { box-shadow: inset 0 0 0 2px var(--color-accent); }
+.selbar { gap: var(--space-xs); }
+.selbar strong { font-weight: 600; }
+.btn.ghost.danger { color: var(--color-danger); }
+.btn.ghost.danger:hover { background: var(--color-paper-3); }
 .card-open { position: relative; display: block; margin: var(--space-2xs) var(--space-2xs) 0; padding: 0; border: 0; border-radius: var(--radius-sm); overflow: hidden; aspect-ratio: 4 / 3; background: var(--color-paper); }
 .card-open .thumb, .card-open .thumb-fallback { width: 100%; height: 100%; }
 .card-foot { display: flex; align-items: center; gap: var(--space-2xs); height: 48px; padding: 0 var(--space-3xs) 0 var(--space-xs); font-weight: 500; }

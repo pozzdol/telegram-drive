@@ -59,6 +59,7 @@ func New(a *app.App) http.Handler {
 	mux.HandleFunc("GET /api/usage", secure(fileC.Usage))
 	mux.HandleFunc("PATCH /api/files/{id}", secure(fileC.Update))
 	mux.HandleFunc("DELETE /api/files/{id}", secure(fileC.Delete))
+	mux.HandleFunc("POST /api/delete", secure(fileC.BulkDelete)) // several files/folders, folders recursively
 
 	return cors(a.Origin, mux)
 }

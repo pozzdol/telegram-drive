@@ -3,6 +3,7 @@ package file
 
 import (
 	"bytes"
+	"fmt"
 	"image/jpeg"
 	"io"
 	"mime"
@@ -144,6 +145,89 @@ func (c Controller) PutThumb(w http.ResponseWriter, r *http.Request, uid int64) 
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// POST /api/delete {"files":[ids],"folders":[ids]} — deletes the files and the folders with
+// everything inside them (subfolders and their files). Telegram messages go first, 100 at a
+// time; rows are removed only for messages that are gone, so a failure never orphans bytes.
+func (c Controller) BulkDelete(w http.ResponseWriter, r *http.Request, uid int64) {
+	var req struct {
+		Files   []int64 `json:"files"`
+		Folders []int64 `json:"folders"`
+	}
+	if !utils.ReadJSON(w, r, &req) {
+		return
+	}
+	if len(req.Files)+len(req.Folders) == 0 || len(req.Files)+len(req.Folders) > 5000 {
+		utils.WriteErr(w, http.StatusBadRequest, "select 1-5000 items")
+		return
+	}
+	if req.Files == nil {
+		req.Files = []int64{}
+	}
+	if req.Folders == nil {
+		req.Folders = []int64{}
+	}
+
+	// The selected folders and every folder below them, limited to this user's own.
+	var folders []int64
+	rows, err := c.DB.Query(`WITH RECURSIVE t(id) AS (
+			SELECT id FROM folders WHERE user_id = $1 AND id = ANY($2)
+			UNION SELECT f.id FROM folders f JOIN t ON f.parent_id = t.id
+		) SELECT id FROM t`, uid, req.Folders)
+	if err != nil {
+		utils.WriteErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	for rows.Next() {
+		var id int64
+		rows.Scan(&id)
+		folders = append(folders, id)
+	}
+	rows.Close()
+	if folders == nil {
+		folders = []int64{}
+	}
+
+	type victim struct {
+		id  int64
+		msg int
+	}
+	var files []victim
+	rows, err = c.DB.Query(`SELECT id, msg_id FROM files WHERE user_id = $1 AND (id = ANY($2) OR folder_id = ANY($3))`,
+		uid, req.Files, folders)
+	if err != nil {
+		utils.WriteErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	for rows.Next() {
+		var v victim
+		rows.Scan(&v.id, &v.msg)
+		files = append(files, v)
+	}
+	rows.Close()
+
+	for start := 0; start < len(files); start += 100 {
+		batch := files[start:min(start+100, len(files))]
+		ids, msgs := make([]int64, len(batch)), make([]int, len(batch))
+		for i, v := range batch {
+			ids[i], msgs[i] = v.id, v.msg
+		}
+		if err := c.TG.Delete(r.Context(), msgs...); err != nil {
+			utils.WriteErr(w, http.StatusBadGateway, fmt.Sprintf("deleted %d of %d files, then Telegram failed: %v", start, len(files), err))
+			return
+		}
+		c.DB.Exec(`DELETE FROM files WHERE id = ANY($1)`, ids)
+		for _, id := range ids {
+			os.Remove(ThumbPath(c.ThumbDir, id))
+		}
+	}
+	// One statement: parent and child folders go together, so the parent_id check passes.
+	if _, err := c.DB.Exec(`DELETE FROM folders WHERE user_id = $1 AND id = ANY($2)`, uid, folders); err != nil {
+		utils.WriteErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	utils.WriteJSON(w, http.StatusOK, map[string]int{"files": len(files), "folders": len(folders)})
 }
 
 // GET /api/media?offset=&limit= — photos and videos across all folders, newest first (gallery view).

@@ -120,20 +120,32 @@ export default function App() {
     const name = await askUser({ title: 'Ganti nama', input: true, value: it.name, selectBase: type === 'file', confirm: 'Simpan' })
     if (name && name !== it.name) run(() => api(`/api/${type}s/${it.id}`, { method: 'PATCH', body: { name } }))
   }
-  const remove = async (type, it) => {
-    const ok = await askUser(type === 'file'
-      ? { title: `Hapus “${it.name}”?`, message: 'File dihapus permanen dari channel Telegram dan tidak bisa dikembalikan.', confirm: 'Hapus', danger: true }
-      : { title: `Hapus folder “${it.name}”?`, message: 'Hanya folder kosong yang bisa dihapus.', confirm: 'Hapus', danger: true })
+  // Deletes files and folders (with everything inside) in one request. items: [{ type, item }].
+  const removeMany = async items => {
+    const folders = items.filter(x => x.type === 'folder')
+    const one = items.length === 1 ? items[0].item.name : null
+    const ok = await askUser({
+      title: one ? `Hapus “${one}”?` : `Hapus ${items.length} item?`,
+      message: (folders.length ? 'Folder dihapus beserta semua file dan subfolder di dalamnya. ' : '')
+        + 'File dihapus permanen dari channel Telegram dan tidak bisa dikembalikan.',
+      confirm: 'Hapus',
+      danger: true,
+    })
     if (!ok) return false
     try {
-      await api(`/api/${type}s/${it.id}`, { method: 'DELETE' })
-      refresh()
+      await api('/api/delete', {
+        method: 'POST',
+        body: { files: items.filter(x => x.type === 'file').map(x => x.item.id), folders: folders.map(x => x.item.id) },
+      })
       return true
     } catch (e) {
-      setError(type === 'folder' && e.status === 409 ? `Folder “${it.name}” masih berisi file atau folder. Kosongkan dulu.` : e.message)
+      setError(e.message)
       return false
+    } finally {
+      refresh()
     }
   }
+  const remove = (type, it) => removeMany([{ type, item: it }])
   const move = async (target, to) => {
     const body = target.type === 'file' ? { folder_id: to } : { parent_id: to }
     await api(`/api/${target.type}s/${target.item.id}`, { method: 'PATCH', body })
@@ -170,7 +182,11 @@ export default function App() {
     })
   }
 
-  const itemMenu = (type, it, at) => setMenu({
+  // type null: right-click on a multi-selection; it is then the selected [{ type, item }].
+  const itemMenu = (type, it, at) => setMenu(type === null ? {
+    at,
+    items: [{ label: `Hapus ${it.length} item`, icon: Trash2, danger: true, onSelect: () => removeMany(it) }],
+  } : {
     at,
     items: [
       type === 'folder'
@@ -296,6 +312,7 @@ export default function App() {
             onGo={id => nav({ folder: id })}
             onOpenFile={openFile}
             onMenu={itemMenu}
+            onDelete={removeMany}
             onUpload={() => inputRef.current.click()}
           />
         )}
