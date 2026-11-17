@@ -43,13 +43,20 @@ export function FolderIcon({ size = 20 }) {
 export function Thumb({ file, iconSize = 36 }) {
   const [failed, setFailed] = useState(false)
   const [retry, setRetry] = useState(0)
+  const [making, setMaking] = useState(false)
   if (!hasPreview(file.mime) || failed) {
     return <div className={`thumb-fallback k-bg-${kind(file.mime)}`}><KindIcon mime={file.mime} size={iconSize} /></div>
   }
   const onError = async () => {
-    if (kind(file.mime) === 'video' && !retry && await makeVideoThumb(file.id, fileURL(file.id, true))) setRetry(1)
-    else setFailed(true)
+    if (kind(file.mime) !== 'video' || retry) return setFailed(true)
+    // Making the preview can take a while (it streams part of the video): show a placeholder,
+    // not the browser's broken-image icon.
+    setMaking(true)
+    const ok = await makeVideoThumb(file.id, fileURL(file.id, true))
+    setMaking(false)
+    ok ? setRetry(1) : setFailed(true)
   }
+  if (making) return <div className="thumb sk" aria-hidden />
   const src = thumbURL(file) + (retry ? '&r=1' : '')
   // Shimmers until the picture arrives (thumbnails may come from Telegram on first view).
   return <img className="thumb sk" src={src} alt="" loading="lazy" decoding="async" onError={onError}
@@ -157,8 +164,11 @@ export function AskDialog({ ask, onDone }) {
 }
 
 export function Crumbs({ path, onGo, root = 'Drive saya', small }) {
+  // On phones the path is one sideways-scrolling line; show its end (the current folder).
+  const ref = useRef(null)
+  useLayoutEffect(() => { ref.current.scrollLeft = ref.current.scrollWidth }, [path])
   return (
-    <nav className={`crumbs${small ? ' small' : ''}`} aria-label="Lokasi folder">
+    <nav ref={ref} className={`crumbs${small ? ' small' : ''}`} aria-label="Lokasi folder">
       <button onClick={() => onGo(0)} aria-current={path.length ? undefined : 'page'}>{root}</button>
       {path.map((c, i) => (
         <Fragment key={c.id}>

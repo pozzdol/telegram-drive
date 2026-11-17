@@ -198,7 +198,7 @@ h1, h2 { margin: 0; }
 
 .topbar { grid-area: top; display: flex; align-items: center; gap: var(--space-xs); padding: 0 var(--space-sm) 0 0; }
 .search {
-  flex: 1; max-width: 720px; display: flex; align-items: center; gap: var(--space-xs);
+  flex: 1; min-width: 0; max-width: 720px; display: flex; align-items: center; gap: var(--space-xs);
   height: 48px; padding: 0 var(--space-2xs) 0 var(--space-sm); border-radius: var(--radius-pill);
   background: var(--color-paper-3); color: var(--color-ink-2);
   transition: background-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
@@ -224,7 +224,11 @@ h1, h2 { margin: 0; }
   padding: var(--space-sm) var(--space-md) var(--space-xs); background: var(--color-paper);
 }
 .panel-title { flex: 1 1 auto; min-width: 0; font-size: var(--text-xl); font-weight: 500; letter-spacing: -0.015em; overflow-wrap: anywhere; }
-.crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 0; }
+/* One line at every width (scrolls sideways when long), so the sticky header keeps one height
+   and the sticky column titles below it are never covered. */
+.crumbs { display: flex; align-items: center; flex-wrap: nowrap; gap: 0; overflow-x: auto; scrollbar-width: none; }
+.crumbs::-webkit-scrollbar { display: none; }
+.crumbs button { flex: none; }
 .crumbs button {
   border: 0; background: none; padding: var(--space-3xs) var(--space-xs); border-radius: var(--radius-pill);
   font-size: inherit; font-weight: inherit; color: var(--color-ink-2); white-space: nowrap;
@@ -246,7 +250,7 @@ h1, h2 { margin: 0; }
 
 table.list { width: 100%; border-collapse: collapse; }
 .list th {
-  position: sticky; top: 64px; z-index: 1; background: var(--color-paper);
+  position: sticky; top: var(--head-h, 64px); z-index: 1; background: var(--color-paper);
   text-align: left; font-weight: 600; font-size: var(--text-sm); color: var(--color-ink-2);
   padding: var(--space-2xs) var(--space-sm); border-bottom: 1px solid var(--color-rule);
 }
@@ -261,6 +265,10 @@ button.name {
   border: 0; background: none; text-align: left; font-weight: 500;
 }
 button.name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.name .name-col { display: flex; flex-direction: column; min-width: 0; }
+button.name .nm-row { display: flex; align-items: center; gap: var(--space-xs); min-width: 0; }
+button.name .nm-row .missing-badge { overflow: visible; }
+button.name .meta { display: none; font-size: var(--text-xs); font-weight: 400; color: var(--color-ink-2); }
 .list .more, .folder-chip .more, .card-foot .more { width: 36px; height: 36px; }
 
 .grid-view { padding: 0 var(--space-md) var(--space-lg); }
@@ -299,13 +307,14 @@ button.name span { overflow: hidden; text-overflow: ellipsis; white-space: nowra
 
 /* ---- files deleted in Telegram: the record stays, marked and dimmed ---- */
 .missing-badge { display: inline-flex; align-items: center; gap: 4px; flex: none; color: var(--color-warn); font-size: var(--text-xs); font-weight: 600; }
-button.name.missing > span:not(.missing-badge) { color: var(--color-ink-2); text-decoration: line-through; text-decoration-color: var(--color-warn); }
+button.name.missing .nm { color: var(--color-ink-2); text-decoration: line-through; text-decoration-color: var(--color-warn); }
+button.name.missing .meta { color: var(--color-warn); }
 .badge.warn { background: var(--color-paper); }
 .tile.missing .thumb, .tile.missing .thumb-fallback { opacity: 0.35; }
 .tile-warn { position: absolute; inset: 0; display: grid; place-items: center; }
 .tile-warn .missing-badge svg { width: 28px; height: 28px; }
 .lb-missing {
-  display: grid; justify-items: center; gap: var(--space-xs); max-width: 420px; padding: var(--space-lg);
+  display: grid; justify-items: center; gap: var(--space-xs); width: min(420px, 100%); padding: var(--space-lg) var(--space-md);
   text-align: center; color: var(--color-stage-ink);
 }
 .lb-missing svg { color: var(--color-warn); }
@@ -352,7 +361,8 @@ dialog.lightbox {
   width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0;
   background: var(--color-stage); color: var(--color-stage-ink); overflow: hidden;
 }
-dialog.lightbox[open] { display: grid; grid-template-rows: auto minmax(0, 1fr); }
+dialog.lightbox[open] { display: grid; grid-template-rows: auto minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); }
+.lb-bar > .icon-btn { flex: none; }
 dialog.lightbox::backdrop { background: var(--color-stage); }
 .lb-bar { display: flex; align-items: center; gap: var(--space-3xs); height: var(--bar-h); padding: 0 var(--space-2xs); z-index: 2; }
 .lb-bar .icon-btn { color: var(--color-stage-ink); }
@@ -428,11 +438,13 @@ dialog.sheet.form input[type="checkbox"] { width: 20px; height: 20px; accent-col
   display: inline-grid; place-items: center; flex: none; width: var(--size); height: var(--size); border-radius: 50%;
   background: var(--color-accent); color: var(--color-accent-ink); font-weight: 700; font-size: calc(var(--size) * 0.45);
 }
-.account-btn { display: grid; place-items: center; width: 44px; height: 44px; margin-left: auto; padding: 0; border: 0; border-radius: 50%; background: none; }
+.account-btn { flex: none; display: grid; place-items: center; width: 44px; height: 44px; margin-left: auto; padding: 0; border: 0; border-radius: 50%; background: none; }
 .account-btn:hover { background: var(--color-paper-3); }
 .pad-x { margin: 0; padding: 0 var(--space-md) var(--space-sm); }
 .who { display: flex; align-items: center; gap: var(--space-sm); min-width: 0; }
-.who-name { overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+.who-text { display: flex; align-items: center; gap: var(--space-xs); min-width: 0; overflow: hidden; }
+.who-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.who .role { justify-self: start; }
 .role {
   flex: none; padding: 1px var(--space-2xs); border-radius: var(--radius-pill);
   background: var(--color-accent-soft); color: var(--color-accent-soft-ink); font-size: var(--text-xs); font-weight: 600;
@@ -503,13 +515,11 @@ dialog.sheet.form input[type="checkbox"] { width: 20px; height: 20px; accent-col
   .panel-head { padding: var(--space-xs) var(--space-sm); }
   .panel-title { flex-basis: 100%; font-size: var(--text-lg); }
   .crumbs button { max-width: 160px; }
-  .list th { top: 104px; }
   .list th:first-child, .list td:first-child { padding-left: var(--space-sm); }
   .grid-view, .photos { padding-left: var(--space-sm); padding-right: var(--space-sm); }
   .photos { padding-left: 0; padding-right: 0; }
   .day-title { padding-left: var(--space-sm); font-size: var(--text-xl); }
   .photo-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 96px), 1fr)); gap: 2px; }
-  .file-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr)); }
   .tabbar {
     grid-area: tabs; display: flex; justify-content: center; gap: var(--space-xl);
     padding: var(--space-3xs) 0 calc(var(--space-3xs) + env(safe-area-inset-bottom)); background: var(--color-paper); border-top: 1px solid var(--color-rule);
@@ -530,6 +540,21 @@ dialog.sheet.form input[type="checkbox"] { width: 20px; height: 20px; accent-col
   .lb-stage { padding: 0 0 var(--space-xl); }
   .lb-nav { display: none; }
   .pad-x { padding: 0 var(--space-sm) var(--space-sm); }
+  /* Nothing hides under the floating + button: content scrolls clear of it. */
+  .panel { padding-bottom: calc(56px + var(--space-lg)); }
+  /* Upload progress sits above the + button instead of on top of it. */
+  .uploads { bottom: calc(76px + 56px + var(--space-sm) + env(safe-area-inset-bottom)); max-height: 40vh; }
+  /* List: no column headers; date and size move under the name like in phone file apps. */
+  .list:not(.users) thead { display: none; }
+  button.name .meta { display: block; }
+  button.name .nm-row .missing-badge { display: none; }
+  .list td { height: 60px; }
+  /* Cards: two per row even on the narrowest phones. */
+  .file-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .folder-grid { grid-template-columns: minmax(0, 1fr); }
+  .who-text { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .who-name { max-width: 100%; }
+  .who-text .role { font-size: 11px; }
   .list.users th { top: 60px; }
   .hide-sm { display: none; }
 }

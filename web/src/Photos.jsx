@@ -83,7 +83,7 @@ export default function Photos({ version, onOpen, onUpload, onError }) {
                 <button className={`tile${f.missing ? ' missing' : ''}`} onClick={() => onOpen(files, i)} aria-label={f.name}>
                   <Thumb file={f} iconSize={32} />
                   {f.missing && <span className="tile-warn"><MissingBadge compact /></span>}
-                  {kind(f.mime) === 'video' && <span className="play" aria-hidden><Play size={16} fill="currentColor" /></span>}
+                  {kind(f.mime) === 'video' && !f.missing && <span className="play" aria-hidden><Play size={16} fill="currentColor" /></span>}
                 </button>
               </li>
             ))}

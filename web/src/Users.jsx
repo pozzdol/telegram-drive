@@ -101,8 +101,10 @@ export default function Users({ me, version, onMenu, onAsk, onError }) {
                 <td>
                   <div className="who">
                     <Avatar name={u.username} />
-                    <span className="who-name">{u.username}{u.id === me.id && <span className="muted"> (kamu)</span>}</span>
-                    {u.is_admin && <span className="role">Admin</span>}
+                    <span className="who-text">
+                      <span className="who-name">{u.username}{u.id === me.id && <span className="muted"> (kamu)</span>}</span>
+                      {u.is_admin && <span className="role">Admin</span>}
+                    </span>
                   </div>
                 </td>
                 <td className="num hide-xs">{u.files.toLocaleString('id-ID')}</td>

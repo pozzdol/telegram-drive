@@ -1,6 +1,7 @@
 // "Drive saya" and search results: folders first, then files, as a list or a grid.
 // Selection works like a desktop file manager: Ctrl/Cmd+A selects everything here,
 // Ctrl/Cmd+click toggles one item, Shift+click selects a range, Delete removes, Esc clears.
+// On touch screens a long press selects, and while something is selected a tap toggles.
 import { useEffect, useRef, useState } from 'react'
 import { EllipsisVertical, LayoutGrid, List, Play, Search, Trash2, Upload, X } from 'lucide-react'
 import { Crumbs, FolderIcon, GridSkeleton, KindIcon, ListSkeleton, MissingBadge, Thumb, fmtDate, fmtSize, kind } from './ui.jsx'
@@ -30,6 +31,14 @@ export default function Drive({ data, query, view, sort, onView, onSort, onGo, o
   const order = [...folders.map(f => ({ type: 'folder', item: f, key: `folder:${f.id}` })),
     ...files.map(f => ({ type: 'file', item: f, key: `file:${f.id}` }))]
   const [sel, setSel] = useState(() => new Set())
+  // The sticky column titles sit right under the sticky header, whose height changes when it wraps.
+  const head = useRef(null)
+  useEffect(() => {
+    const el = head.current
+    const ro = new ResizeObserver(() => el.parentElement.style.setProperty('--head-h', `${el.offsetHeight}px`))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
   const anchor = useRef(0)
   useEffect(() => setSel(new Set()), [data?.key])
 
@@ -59,7 +68,7 @@ export default function Drive({ data, query, view, sort, onView, onSort, onGo, o
     if (e.shiftKey) {
       const [a, b] = [Math.min(anchor.current, i), Math.max(anchor.current, i)]
       setSel(new Set(order.slice(a, b + 1).map(o => o.key)))
-    } else if (e.ctrlKey || e.metaKey) {
+    } else if (e.ctrlKey || e.metaKey || sel.size > 0) {
       const k = order[i].key
       setSel(s => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n })
       anchor.current = i
@@ -78,11 +87,21 @@ export default function Drive({ data, query, view, sort, onView, onSort, onGo, o
     type === 'folder' ? onGo(it.id) : onOpenFile(it, files)
   }
 
+  // A long press on a touch screen fires contextmenu: select instead of opening the menu.
+  const touch = useRef(false)
   const item = (type, it) => ({
     className: sel.has(`${type}:${it.id}`) ? 'selected' : undefined,
     'aria-selected': sel.has(`${type}:${it.id}`),
+    onPointerDown: e => { touch.current = e.pointerType === 'touch' },
     onContextMenu: e => {
       e.preventDefault()
+      if (touch.current) {
+        const k = `${type}:${it.id}`
+        setSel(s => new Set(s).add(k))
+        anchor.current = indexOf(type, it)
+        navigator.vibrate?.(15)
+        return
+      }
       // Right-click inside a multi-selection acts on the whole selection, like a file manager.
       if (selected.length > 1 && sel.has(`${type}:${it.id}`)) onMenu(null, selected, { x: e.clientX, y: e.clientY })
       else onMenu(type, it, { x: e.clientX, y: e.clientY })
@@ -97,7 +116,7 @@ export default function Drive({ data, query, view, sort, onView, onSort, onGo, o
 
   return (
     <section className="panel" aria-labelledby="panel-title">
-      <div className="panel-head">
+      <div className="panel-head" ref={head}>
         <h1 id="panel-title" className="panel-title">
           {query ? <>Hasil untuk “{query}”</> : <Crumbs path={data?.path || []} onGo={onGo} />}
         </h1>
@@ -146,7 +165,9 @@ export default function Drive({ data, query, view, sort, onView, onSort, onGo, o
           <tbody>
             {folders.map(f => (
               <tr key={`d${f.id}`} {...item('folder', f)}>
-                <td><button className="name" onClick={open('folder', f)}><FolderIcon /> <span>{f.name}</span></button></td>
+                <td><button className="name" onClick={open('folder', f)}><FolderIcon />
+                  <span className="name-col"><span className="nm">{f.name}</span><span className="meta">{fmtDate(f.created_at)}</span></span>
+                </button></td>
                 <td className="hide-sm muted">{fmtDate(f.created_at)}</td>
                 <td className="num hide-xs muted">—</td>
                 <td className="act">{more('folder', f)}</td>
@@ -154,7 +175,12 @@ export default function Drive({ data, query, view, sort, onView, onSort, onGo, o
             ))}
             {files.map(f => (
               <tr key={`f${f.id}`} {...item('file', f)}>
-                <td><button className={`name${f.missing ? ' missing' : ''}`} onClick={open('file', f)}><KindIcon mime={f.mime} /> <span>{f.name}</span>{f.missing && <MissingBadge />}</button></td>
+                <td><button className={`name${f.missing ? ' missing' : ''}`} onClick={open('file', f)}><KindIcon mime={f.mime} />
+                  <span className="name-col">
+                    <span className="nm-row"><span className="nm">{f.name}</span>{f.missing && <MissingBadge />}</span>
+                    <span className="meta">{f.missing ? 'Hilang di Telegram' : `${fmtDate(f.created_at)} · ${fmtSize(f.size)}`}</span>
+                  </span>
+                </button></td>
                 <td className="hide-sm muted">{fmtDate(f.created_at)}</td>
                 <td className="num hide-xs muted">{fmtSize(f.size)}</td>
                 <td className="act">{more('file', f)}</td>
