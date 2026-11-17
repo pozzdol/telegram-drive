@@ -23,7 +23,14 @@ export const kind = m =>
       : m.startsWith('audio/') ? 'audio'
         : m === 'application/pdf' || m.startsWith('text/plain') ? 'doc'
           : 'other'
-export const isViewable = f => ['image', 'video', 'audio'].includes(kind(f.mime))
+// Text files are often stored as application/octet-stream (browsers do not know .go, .md, ...),
+// so the name decides too.
+const TEXT_EXT = /\.(md|markdown|txt|log|csv|tsv|json|ya?ml|toml|ini|conf|cfg|env|xml|sql|sh|bash|go|jsx?|tsx?|py|rb|java|kt|c|h|cpp|hpp|cs|rs|php|css|scss|html?|vue|svelte|gitignore|dockerfile)$/i
+const TEXT_MIME = /^text\/|^application\/(json|xml|x-yaml|yaml|javascript|x-sh|sql|toml)/
+export const textKind = f =>
+  /\.(md|markdown)$/i.test(f.name) || f.mime === 'text/markdown' ? 'markdown'
+    : TEXT_MIME.test(f.mime) || TEXT_EXT.test(f.name) ? 'text' : null
+export const isViewable = f => ['image', 'video', 'audio'].includes(kind(f.mime)) || textKind(f) !== null
 export const hasThumb = m => ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(m)
 const hasPreview = m => hasThumb(m) || m.startsWith('video/')
 

@@ -19,6 +19,7 @@
   --color-focus: oklch(55% 0.15 228);
   --color-danger: oklch(53% 0.19 27);
   --color-ok: oklch(56% 0.13 155);
+  --font-mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace; /* text file preview */
   --color-sk-shine: oklch(97% 0.006 245); /* skeleton shimmer highlight */
   --color-warn: oklch(55% 0.14 65); /* file missing in Telegram */
   --color-telegram: oklch(62% 0.13 237); /* Telegram brand blue, for its login button only */
@@ -369,6 +370,35 @@ dialog.lightbox::backdrop { background: var(--color-stage); }
 .lb-bar .icon-btn:hover, .lb-bar .icon-btn[aria-pressed="true"] { background: oklch(100% 0 0 / 0.12); }
 .lb-name { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 var(--space-2xs); }
 .lb-stage { position: relative; display: grid; place-items: center; min-height: 0; padding: 0 var(--space-xl) var(--space-xl); touch-action: pan-y; }
+/* ---- text and Markdown preview: a readable page on the dark stage ---- */
+.lb-stage.text { place-items: start center; padding: 0 var(--space-md) 44px; overflow: hidden; } /* 44px: room for the "n dari m" counter */
+.doc-sheet {
+  width: min(860px, 100%); height: 100%; overflow: auto; overscroll-behavior: contain;
+  padding: var(--space-md) var(--space-lg) var(--space-xl); border-radius: var(--radius-md);
+  background: var(--color-paper); color: var(--color-ink);
+}
+.doc-msg { height: auto; color: var(--color-ink-2); }
+.doc-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-xs); margin-bottom: var(--space-sm); }
+.doc-mode { margin-left: auto; }
+.doc-mode button { width: auto; padding: 0 var(--space-sm); font-size: var(--text-sm); }
+.txt-body { margin: 0; font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4; }
+.md-body { max-width: 72ch; line-height: 1.7; overflow-wrap: anywhere; }
+.md-body > :first-child { margin-top: 0; }
+.md-body h1, .md-body h2, .md-body h3, .md-body h4 { line-height: 1.25; letter-spacing: -0.015em; margin: 1.6em 0 0.5em; }
+.md-body h1 { font-size: var(--text-2xl); font-weight: 700; }
+.md-body h2 { font-size: var(--text-xl); font-weight: 650; padding-bottom: 0.3em; border-bottom: 1px solid var(--color-rule); }
+.md-body h3 { font-size: var(--text-lg); font-weight: 650; }
+.md-body p, .md-body ul, .md-body ol, .md-body blockquote, .md-body table, .md-body pre { margin: 0 0 1em; }
+.md-body a { color: var(--color-accent); text-underline-offset: 2px; }
+.md-body code { font-family: var(--font-mono); font-size: 0.9em; padding: 0.1em 0.35em; border-radius: 4px; background: var(--color-paper-3); }
+.md-body pre { padding: var(--space-sm); border-radius: var(--radius-sm); background: var(--color-paper-3); overflow-x: auto; }
+.md-body pre code { padding: 0; background: none; font-size: var(--text-sm); }
+.md-body blockquote { padding: 0 var(--space-sm); border-left: 3px solid var(--color-rule); color: var(--color-ink-2); }
+.md-body table { border-collapse: collapse; display: block; overflow-x: auto; }
+.md-body th, .md-body td { padding: 6px 12px; border: 1px solid var(--color-rule); text-align: left; }
+.md-body img { max-width: 100%; }
+.md-body hr { border: 0; border-top: 1px solid var(--color-rule); margin: 1.5em 0; }
+.md-body input[type="checkbox"] { margin-right: 6px; }
 .lb-img { grid-area: 1 / 1; max-width: 100%; max-height: 100%; object-fit: contain; }
 .lb-img.loading { opacity: 0; }
 .lb-low { filter: blur(6px); transform: scale(1); width: auto; height: 100%; max-height: 100%; }
@@ -539,6 +569,8 @@ dialog.sheet.form input[type="checkbox"] { width: 20px; height: 20px; accent-col
   .uploads { right: var(--space-xs); left: var(--space-xs); width: auto; bottom: calc(76px + env(safe-area-inset-bottom)); }
   .lb-stage { padding: 0 0 var(--space-xl); }
   .lb-nav { display: none; }
+  .lb-stage.text { padding: 0 0 44px; }
+  .doc-sheet { border-radius: 0; padding: var(--space-sm) var(--space-md) var(--space-xl); }
   .pad-x { padding: 0 var(--space-sm) var(--space-sm); }
   /* Nothing hides under the floating + button: content scrolls clear of it. */
   .panel { padding-bottom: calc(56px + var(--space-lg)); }

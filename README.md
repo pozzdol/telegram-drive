@@ -7,6 +7,7 @@ It has a web UI (in Indonesian) that should feel familiar if you use Google Driv
 - **Drive.** Folders, list and grid views, sort, search, rename, move, delete, drag and drop upload, right-click menus. Select with Ctrl/Cmd+A, Ctrl/Cmd+click and Shift+click, then delete files and whole folders at once.
 - **Photos.** Every photo and video in one timeline, grouped by the day it was taken (EXIF date for JPEGs), with a full-screen viewer, swipe and keyboard navigation.
 - **Previews.** Image thumbnails made on the server; video thumbnails made in the browser, so no ffmpeg is needed.
+- **Documents.** Markdown renders in the viewer (headings, tables, task lists, code blocks), sanitised with DOMPurify; other text files (code, logs, JSON, CSV) show as plain text. Big files load only their first 512 KB.
 - **Big files.** Chunked, resumable uploads up to 2 GB per file (4 GB with Telegram Premium). Downloads support Range requests, so videos stream and seek.
 - **Family accounts.** Each user has a private drive. There is no public sign-up: the first user becomes admin and adds the others from the admin page.
 - **Log in with Telegram** (optional). Each user links their Telegram account once from the account menu; Telegram cannot create new accounts.

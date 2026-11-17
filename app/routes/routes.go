@@ -85,9 +85,10 @@ func cors(origin string, next http.Handler) http.Handler {
 			h.Set("Access-Control-Allow-Origin", origin)
 			h.Set("Access-Control-Allow-Credentials", "true")
 			h.Add("Vary", "Origin")
+			h.Set("Access-Control-Expose-Headers", "Content-Range") // lets a preview tell it got only part of the file
 			if r.Method == http.MethodOptions {
 				h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE")
-				h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+				h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Range") // Range: text previews read only the start
 				h.Set("Access-Control-Max-Age", "86400")
 				w.WriteHeader(http.StatusNoContent)
 				return

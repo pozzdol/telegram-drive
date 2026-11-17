@@ -1,8 +1,10 @@
 // Full-screen viewer for photos, videos and audio, with prev/next, keys and swipe.
-import { useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { ArrowLeft, ChevronLeft, ChevronRight, Download, Info, Trash2, TriangleAlert } from 'lucide-react'
 import { api, fileURL, thumbURL } from './api.js'
-import { fmtDate, fmtDateTime, fmtSize, hasThumb, kind, useModal } from './ui.jsx'
+import { fmtDate, fmtDateTime, fmtSize, hasThumb, kind, textKind, useModal } from './ui.jsx'
+// Markdown libraries load only when a text file is opened.
+const TextPreview = lazy(() => import('./TextPreview.jsx'))
 
 export default function Lightbox({ items, start, onClose, onDelete, onMissing }) {
   const ref = useModal()
@@ -38,7 +40,8 @@ export default function Lightbox({ items, start, onClose, onDelete, onMissing })
   if (!f) return <dialog ref={ref} className="lightbox" onClose={onClose} />
 
   const go = d => setI(x => Math.min(items.length - 1, Math.max(0, x + d)))
-  const k = kind(f.mime)
+  const media = kind(f.mime)
+  const k = ['image', 'video', 'audio'].includes(media) ? media : textKind(f) ? 'text' : media
 
   return (
     <dialog
@@ -59,9 +62,10 @@ export default function Lightbox({ items, start, onClose, onDelete, onMissing })
       </header>
 
       <div
-        className="lb-stage"
         onPointerDown={e => { swipe.current = e.clientX }}
+        className={`lb-stage${k === 'text' ? ' text' : ''}`}
         onPointerUp={e => {
+          if (k === 'text') return // let text scroll sideways without changing file
           const dx = e.clientX - (swipe.current ?? e.clientX)
           if (Math.abs(dx) > 60 && e.pointerType !== 'mouse') go(dx < 0 ? 1 : -1)
           swipe.current = null
@@ -74,6 +78,12 @@ export default function Lightbox({ items, start, onClose, onDelete, onMissing })
             <p>Pesannya terhapus dari channel penyimpanan, jadi isinya tidak bisa dibuka lagi. Yang tersisa hanya catatannya di aplikasi.</p>
             <button className="btn danger-fill" onClick={() => onDelete(f)}><Trash2 size={18} aria-hidden /> Hapus dari aplikasi</button>
           </div>
+        )}
+        {!gone.has(f.id) && k === 'text' && (
+          <Suspense fallback={<div className="doc-sheet" aria-busy="true" />}>
+            <TextPreview key={f.id} file={f} markdown={textKind(f) === 'markdown'}
+              onMissing={() => { setGone(s => new Set(s).add(f.id)); onMissing?.(f) }} />
+          </Suspense>
         )}
         {!gone.has(f.id) && k === 'image' && (
           <>
