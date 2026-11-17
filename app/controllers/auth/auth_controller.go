@@ -54,11 +54,12 @@ func (c Controller) Admin(next app.AuthedHandler) http.HandlerFunc {
 func (c Controller) Me(w http.ResponseWriter, r *http.Request, uid int64) {
 	var name string
 	var admin bool
-	if err := c.DB.QueryRow(`SELECT username, is_admin FROM users WHERE id = $1`, uid).Scan(&name, &admin); err != nil {
+	var tgID *int64
+	if err := c.DB.QueryRow(`SELECT username, is_admin, telegram_id FROM users WHERE id = $1`, uid).Scan(&name, &admin, &tgID); err != nil {
 		utils.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	utils.WriteJSON(w, http.StatusOK, map[string]any{"id": uid, "username": name, "is_admin": admin})
+	utils.WriteJSON(w, http.StatusOK, map[string]any{"id": uid, "username": name, "is_admin": admin, "telegram_linked": tgID != nil})
 }
 
 // ChangePassword needs the current password; other sessions of this user are logged out.
@@ -140,6 +141,11 @@ func (c Controller) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	logins.reset(ip, name)
+	c.startSession(w, r, uid)
+}
+
+// startSession logs uid in: sets the cookie and returns the token for API clients.
+func (c Controller) startSession(w http.ResponseWriter, r *http.Request, uid int64) {
 	tok, err := newSession(c.DB, uid)
 	if err != nil {
 		utils.ServerErr(w, http.StatusInternalServerError, err)

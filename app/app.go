@@ -17,6 +17,8 @@ type App struct {
 	UploadDir string
 	ThumbDir  string // cached image previews, data/thumbs/<file id>.jpg
 	Origin    string // UI origin allowed by CORS
+	BotToken  string // Telegram bot for "Log in with Telegram"; empty disables it
+	BotName   string
 }
 
 // AuthedHandler is a handler behind auth.Controller.Secure; uid is the logged-in user.

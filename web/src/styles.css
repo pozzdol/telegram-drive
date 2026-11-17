@@ -19,6 +19,8 @@
   --color-focus: oklch(55% 0.15 228);
   --color-danger: oklch(53% 0.19 27);
   --color-ok: oklch(56% 0.13 155);
+  --color-telegram: oklch(62% 0.13 237); /* Telegram brand blue, for its login button only */
+  --color-telegram-ink: oklch(99% 0 0);
   --color-telegram-phase: oklch(62% 0.12 222);
   --color-scrim: oklch(20% 0.02 245 / 0.45);
   --color-stage: oklch(9% 0.005 245);
@@ -209,6 +211,7 @@ h1, h2 { margin: 0; }
   background: var(--color-paper); color: var(--color-danger); box-shadow: inset 0 0 0 1px var(--color-danger);
 }
 .banner span { flex: 1; }
+.banner.ok-banner { color: var(--color-ok); box-shadow: inset 0 0 0 1px var(--color-ok); }
 .panel { flex: 1; min-height: 0; overflow-y: auto; background: var(--color-paper); border-radius: var(--radius-lg); }
 
 /* ---- drive panel ---- */
@@ -436,6 +439,10 @@ dialog.sheet.form input[type="checkbox"] { width: 20px; height: 20px; accent-col
   border-radius: var(--radius-lg); background: var(--color-paper); box-shadow: var(--shadow-raise);
 }
 .login-mark { color: var(--color-accent); }
+.or { display: flex; align-items: center; gap: var(--space-xs); color: var(--color-ink-2); font-size: var(--text-sm); }
+.or::before, .or::after { content: ""; flex: 1; border-top: 1px solid var(--color-rule); }
+.btn.tg { background: var(--color-telegram); color: var(--color-telegram-ink); }
+.btn.tg:hover { box-shadow: var(--shadow-raise); }
 .login-card h1 { font-size: var(--text-2xl); font-weight: 700; letter-spacing: -0.03em; line-height: 1.15; }
 .login-card p { margin: calc(-1 * var(--space-xs)) 0 var(--space-2xs); }
 .login-card label { display: flex; flex-direction: column; gap: var(--space-3xs); font-weight: 500; font-size: var(--text-sm); }

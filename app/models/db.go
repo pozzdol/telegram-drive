@@ -62,6 +62,8 @@ CREATE TABLE IF NOT EXISTS uploads (
 	error      text,
 	created_at bigint NOT NULL DEFAULT extract(epoch FROM now())::bigint
 );
+-- Telegram account linked for "Log in with Telegram" (added later, hence ALTER).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_id bigint UNIQUE;
 `
 
 // Open connects to PostgreSQL (DATABASE_URL, e.g. postgres://user:pass@host:5432/db?sslmode=require)

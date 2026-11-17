@@ -31,6 +31,10 @@ func New(a *app.App) http.Handler {
 	mux.HandleFunc("POST /api/auth/login", authC.Login)
 	mux.HandleFunc("POST /api/auth/logout", secure(authC.Logout))
 	mux.HandleFunc("GET /api/me", secure(authC.Me))
+	mux.HandleFunc("GET /api/auth/config", authC.Config)
+	mux.HandleFunc("POST /api/auth/telegram", authC.TelegramLogin)
+	mux.HandleFunc("PUT /api/me/telegram", secure(authC.LinkTelegram))
+	mux.HandleFunc("DELETE /api/me/telegram", secure(authC.UnlinkTelegram))
 	mux.HandleFunc("PUT /api/me/password", secure(authC.ChangePassword))
 
 	// Admin: family accounts

@@ -10,12 +10,14 @@ import (
 )
 
 type Config struct {
-	Host          string
-	Port          string
-	DataDir       string
-	MaxUploadMB   int64 // 2000 for a normal Telegram account, 4000 for Premium
-	DatabaseURL   string
-	AllowedOrigin string // UI origin allowed by CORS, e.g. https://drive.example.com
+	Host             string
+	Port             string
+	DataDir          string
+	MaxUploadMB      int64 // 2000 for a normal Telegram account, 4000 for Premium
+	DatabaseURL      string
+	AllowedOrigin    string // UI origin allowed by CORS, e.g. https://drive.example.com
+	TelegramBotToken string // optional: enables "Log in with Telegram" (token from @BotFather)
+	TelegramBotName  string // the bot\'s username, without @
 
 	TelegramAPIID     int
 	TelegramAPIHash   string
@@ -31,13 +33,15 @@ func (c Config) ThumbDir() string    { return filepath.Join(c.DataDir, "thumbs")
 func Load() (Config, error) {
 	loadDotEnv(".env")
 	c := Config{
-		Host:            env("HOST", "127.0.0.1"), // 0.0.0.0 only when nothing on this machine proxies it
-		Port:            env("PORT", "8080"),
-		DataDir:         env("DATA_DIR", "data"),
-		AllowedOrigin:   os.Getenv("ALLOWED_ORIGIN"),
-		DatabaseURL:     os.Getenv("DATABASE_URL"),
-		TelegramAPIHash: os.Getenv("TELEGRAM_API_HASH"),
-		TelegramPhone:   os.Getenv("TELEGRAM_PHONE"),
+		Host:             env("HOST", "127.0.0.1"), // 0.0.0.0 only when nothing on this machine proxies it
+		Port:             env("PORT", "8080"),
+		DataDir:          env("DATA_DIR", "data"),
+		AllowedOrigin:    os.Getenv("ALLOWED_ORIGIN"),
+		TelegramBotToken: os.Getenv("TELEGRAM_BOT_TOKEN"),
+		TelegramBotName:  strings.TrimPrefix(os.Getenv("TELEGRAM_BOT_USERNAME"), "@"),
+		DatabaseURL:      os.Getenv("DATABASE_URL"),
+		TelegramAPIHash:  os.Getenv("TELEGRAM_API_HASH"),
+		TelegramPhone:    os.Getenv("TELEGRAM_PHONE"),
 	}
 	c.TelegramAPIID, _ = strconv.Atoi(os.Getenv("TELEGRAM_API_ID"))
 	c.TelegramChannelID, _ = strconv.ParseInt(os.Getenv("TELEGRAM_CHANNEL_ID"), 10, 64)

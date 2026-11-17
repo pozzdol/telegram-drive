@@ -9,6 +9,7 @@ It has a web UI (in Indonesian) that should feel familiar if you use Google Driv
 - **Previews.** Image thumbnails made on the server; video thumbnails made in the browser, so no ffmpeg is needed.
 - **Big files.** Chunked, resumable uploads up to 2 GB per file (4 GB with Telegram Premium). Downloads support Range requests, so videos stream and seek.
 - **Family accounts.** Each user has a private drive. There is no public sign-up: the first user becomes admin and adds the others from the admin page.
+- **Log in with Telegram** (optional). Each user links their Telegram account once from the account menu; Telegram cannot create new accounts.
 - **Easy to host.** The UI is static files (Cloudflare Pages, Vercel, Netlify). The backend is a single Go binary with no CGO, behind Cloudflare Tunnel or any reverse proxy.
 
 Built with Go, [gotd/td](https://github.com/gotd/td) (MTProto, logged in as a user account), PostgreSQL ([pgx](https://github.com/jackc/pgx)), React and Vite.
@@ -122,6 +123,14 @@ With **Cloudflare Tunnel**: in the Cloudflare dashboard go to Zero Trust, Networ
 
 Any reverse proxy (nginx, Caddy) works too. Pass `X-Forwarded-Proto: https` so the login cookie is marked `Secure`, and allow request bodies of at least 50 MB.
 
+### Log in with Telegram (optional)
+
+1. In Telegram, ask @BotFather for `/newbot`, then `/setdomain` with the UI's domain (e.g. `drive.example.com`).
+2. Put `TELEGRAM_BOT_TOKEN` and `TELEGRAM_BOT_USERNAME` in the server's `.env` and restart the service.
+3. Each user signs in with their password once and picks **Hubungkan Telegram** in the avatar menu. After that the login page's **Masuk dengan Telegram** button works for them.
+
+The server checks Telegram's HMAC signature with the bot token and accepts login data for one hour.
+
 ### UI
 
 In Cloudflare Pages, connect this repository and use:
@@ -152,7 +161,11 @@ Authentication uses the `token` cookie set by login, or `Authorization: Bearer <
 | POST | `/api/auth/register` | `{"username","password"}` | Only the first user (becomes admin); afterwards returns `403` |
 | POST | `/api/auth/login` | `{"username","password"}` | Returns `{"token"}` and sets the cookie |
 | POST | `/api/auth/logout` | | |
-| GET | `/api/me` | | `{id, username, is_admin}` |
+| GET | `/api/me` | | `{id, username, is_admin, telegram_linked}` |
+| GET | `/api/auth/config` | | Public. `{telegram_bot, telegram_bot_id}`, or nulls when Telegram login is off |
+| POST | `/api/auth/telegram` | data from Telegram's login popup | Logs in the drive account linked to that Telegram account; `403` if none |
+| PUT | `/api/me/telegram` | data from Telegram's login popup | Links that Telegram account to the logged-in user; `409` if linked elsewhere |
+| DELETE | `/api/me/telegram` | | Unlinks Telegram; password login keeps working |
 | PUT | `/api/me/password` | `{"current","new"}` | Logs out the user's other sessions |
 | GET | `/api/admin/users` | | Admin only. Users with file count and bytes used |
 | POST | `/api/admin/users` | `{"username","password","is_admin"}` | Admin only |

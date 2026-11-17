@@ -40,7 +40,7 @@ func main() {
 
 	tg := tgclient.New(cfg.TelegramAPIID, cfg.TelegramAPIHash, cfg.SessionPath())
 	err = tg.Run(ctx, cfg.TelegramPhone, cfg.TelegramChannelID, func(ctx context.Context) error {
-		a := &app.App{Ctx: ctx, DB: db, TG: tg, MaxUpload: cfg.MaxUploadMB << 20, UploadDir: cfg.UploadDir(), ThumbDir: cfg.ThumbDir(), Origin: cfg.AllowedOrigin}
+		a := &app.App{Ctx: ctx, DB: db, TG: tg, MaxUpload: cfg.MaxUploadMB << 20, UploadDir: cfg.UploadDir(), ThumbDir: cfg.ThumbDir(), Origin: cfg.AllowedOrigin, BotToken: cfg.TelegramBotToken, BotName: cfg.TelegramBotName}
 		upload.Controller{App: a}.Resume()
 		go file.Controller{App: a}.BackfillTakenAt()
 

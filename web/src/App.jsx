@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  Download, FolderInput, FolderOpen, FolderPlus, HardDrive, Images, KeyRound, LogOut, Pencil, Plus, Search,
-  Trash2, Upload, Users as UsersIcon, X,
+  Download, FolderInput, FolderOpen, FolderPlus, HardDrive, Images, KeyRound, Link2, LogOut, Pencil, Plus, Search,
+  Trash2, Unlink, Upload, Users as UsersIcon, X,
 } from 'lucide-react'
 import { api, fileURL, uploadFile } from './api.js'
 import { makeVideoThumb } from './videoThumb.js'
+import { telegramAuth, telegramConfig } from './telegram.js'
 import Drive from './Drive.jsx'
 import Photos from './Photos.jsx'
 import Lightbox from './Lightbox.jsx'
@@ -40,6 +41,7 @@ export default function App() {
   const [pwOpen, setPwOpen] = useState(false)
   const [version, setVersion] = useState(0) // bump to reload lists after a change
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const [uploads, setUploads] = useState([])
   const [menu, setMenu] = useState(null) // { at, items }
   const [ask, setAsk] = useState(null)
@@ -172,12 +174,36 @@ export default function App() {
     setUsage(null)
     if (route.view === 'users') nav({}, true)
   }
+  const [tgBot, setTgBot] = useState(null)
+  useEffect(() => { if (authed) telegramConfig().then(c => setTgBot(c.telegram_bot_id || null)) }, [authed])
+  const linkTelegram = async () => {
+    try {
+      const data = await telegramAuth(tgBot)
+      if (!data) return
+      await api('/api/me/telegram', { method: 'PUT', body: data })
+      setMe(m => ({ ...m, telegram_linked: true }))
+      setNotice('Telegram terhubung. Sekarang kamu bisa masuk dengan tombol “Masuk dengan Telegram”.')
+    } catch (e) {
+      setError(e.status === 409 ? 'Akun Telegram itu sudah terhubung ke akun drive lain.' : e.message)
+    }
+  }
+  const unlinkTelegram = async () => {
+    const ok = await askUser({ title: 'Putuskan Telegram?', message: 'Kamu tidak bisa lagi masuk dengan Telegram sampai menghubungkannya lagi. Masuk dengan password tetap bisa.', confirm: 'Putuskan', danger: true })
+    if (!ok) return
+    try {
+      await api('/api/me/telegram', { method: 'DELETE' })
+      setMe(m => ({ ...m, telegram_linked: false }))
+    } catch (e) { setError(e.message) }
+  }
   const accountMenu = e => {
     const r = e.currentTarget.getBoundingClientRect()
     setMenu({
       at: { x: r.right - 220, y: r.bottom + 6 },
       items: [
         { label: 'Ganti password', icon: KeyRound, onSelect: () => setPwOpen(true) },
+        ...(tgBot ? [me?.telegram_linked
+          ? { label: 'Putuskan Telegram', icon: Unlink, onSelect: unlinkTelegram }
+          : { label: 'Hubungkan Telegram', icon: Link2, onSelect: linkTelegram }] : []),
         ...(me?.is_admin ? [{ label: 'Kelola pengguna', icon: UsersIcon, onSelect: () => nav({ view: 'users' }) }] : []),
         '-',
         { label: 'Keluar', icon: LogOut, onSelect: logout },
@@ -312,6 +338,12 @@ export default function App() {
             <button className="icon-btn" onClick={() => setError('')} aria-label="Tutup pesan"><X size={16} /></button>
           </div>
         )}
+        {notice && (
+          <div className="banner ok-banner" role="status">
+            <span>{notice}</span>
+            <button className="icon-btn" onClick={() => setNotice('')} aria-label="Tutup pesan"><X size={16} /></button>
+          </div>
+        )}
         {showUsers ? (
           <Users me={me} version={version} onMenu={(at, items) => setMenu({ at, items })} onAsk={askUser} onError={setError} />
         ) : route.view === 'photos' ? (
@@ -351,9 +383,35 @@ export default function App() {
   )
 }
 
+function TelegramIcon({ size = 20 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden fill="currentColor">
+      <path d="M21.9 4.6 18.7 19.7c-.2 1-.9 1.3-1.7.8l-4.8-3.5-2.3 2.2c-.3.3-.5.5-1 .5l.3-4.9 8.9-8c.4-.3-.1-.5-.6-.2L6.5 13.5 1.8 12c-1-.3-1-1 .2-1.5l18.4-7.1c.9-.3 1.6.2 1.5 1.2z" />
+    </svg>
+  )
+}
+
 function Login({ onDone }) {
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
+  const [tg, setTg] = useState(null)
+  useEffect(() => { telegramConfig().then(c => c.telegram_bot_id && setTg(c)) }, [])
+  const withTelegram = async () => {
+    setErr('')
+    try {
+      const data = await telegramAuth(tg.telegram_bot_id)
+      if (!data) return
+      setBusy(true)
+      await api('/api/auth/telegram', { method: 'POST', body: data })
+      onDone()
+    } catch (e) {
+      setErr(e.status === 403
+        ? 'Akun Telegram ini belum terhubung ke akun drive. Masuk dengan password dulu, lalu pilih “Hubungkan Telegram” di menu akun.'
+        : e.status === 429 ? 'Terlalu banyak percobaan gagal. Coba lagi nanti.' : e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
   const submit = async e => {
     e.preventDefault()
     const f = new FormData(e.currentTarget)
@@ -363,7 +421,8 @@ function Login({ onDone }) {
       await api('/api/auth/login', { method: 'POST', body: { username: f.get('username'), password: f.get('password') } })
       onDone()
     } catch (e) {
-      setErr(e.status === 401 ? 'Username atau password salah.' : e.message)
+      setErr(e.status === 401 ? 'Username atau password salah.'
+        : e.status === 429 ? 'Terlalu banyak percobaan gagal. Coba lagi dalam 15 menit.' : e.message)
     } finally {
       setBusy(false)
     }
@@ -378,6 +437,14 @@ function Login({ onDone }) {
         <label>Password<input name="password" type="password" autoComplete="current-password" required /></label>
         {err && <p className="err" role="alert">{err}</p>}
         <button className="btn primary wide" disabled={busy}>{busy ? 'Masuk…' : 'Masuk'}</button>
+        {tg && (
+          <>
+            <div className="or" aria-hidden><span>atau</span></div>
+            <button type="button" className="btn tg wide" onClick={withTelegram} disabled={busy}>
+              <TelegramIcon /> Masuk dengan Telegram
+            </button>
+          </>
+        )}
       </form>
     </main>
   )
