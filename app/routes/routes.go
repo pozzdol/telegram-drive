@@ -65,6 +65,7 @@ func New(a *app.App) http.Handler {
 	mux.HandleFunc("PATCH /api/files/{id}", secure(fileC.Update))
 	mux.HandleFunc("DELETE /api/files/{id}", secure(fileC.Delete))
 	mux.HandleFunc("POST /api/delete", secure(fileC.BulkDelete)) // several files/folders, folders recursively
+	mux.HandleFunc("POST /api/move", secure(fileC.BulkMove))     // several files/folders into one folder
 
 	return cors(a.Origin, mux)
 }

@@ -4,7 +4,7 @@
 // On touch screens a long press selects, and while something is selected a tap toggles.
 // With a mouse, dragging draws a box that selects everything it touches (Ctrl/Shift adds to it).
 import { useEffect, useRef, useState } from 'react'
-import { EllipsisVertical, LayoutGrid, List, Play, Search, Trash2, Upload, X } from 'lucide-react'
+import { EllipsisVertical, FolderInput, LayoutGrid, List, Play, Search, Trash2, Upload, X } from 'lucide-react'
 import { Crumbs, FolderIcon, GridSkeleton, KindIcon, ListSkeleton, MissingBadge, Thumb, fmtDate, fmtSize, kind } from './ui.jsx'
 
 const SORTS = {
@@ -23,7 +23,7 @@ const menuFromButton = e => {
 const typingOrModal = e =>
   e.target.closest?.('input, textarea, select, [contenteditable="true"]') || document.querySelector('dialog[open], .menu')
 
-export default function Drive({ data, query, view, sort, onView, onSort, onGo, onOpenFile, onMenu, onUpload, onDelete }) {
+export default function Drive({ data, query, view, sort, onView, onSort, onGo, onOpenFile, onMenu, onUpload, onDelete, onMove }) {
   const folders = data ? [...data.folders].sort(SORTS[sort === 'size' ? 'name' : sort].cmp) : []
   const files = data ? [...data.files].sort(SORTS[sort].cmp) : []
   const empty = data && !folders.length && !files.length
@@ -179,7 +179,8 @@ export default function Drive({ data, query, view, sort, onView, onSort, onGo, o
           <div className="tools selbar" role="toolbar" aria-label="Item terpilih">
             <button className="icon-btn" onClick={() => setSel(new Set())} aria-label="Batalkan pilihan" title="Batalkan pilihan (Esc)"><X size={18} /></button>
             <strong>{selected.length} dipilih</strong>
-            <button className="btn ghost danger" onClick={() => onDelete(selected)} title="Hapus (Delete)"><Trash2 size={18} aria-hidden /> Hapus</button>
+            <button className="btn ghost" onClick={() => onMove(selected)} title="Pindahkan ke folder lain" aria-label="Pindahkan"><FolderInput size={18} aria-hidden /><span className="hide-xs">Pindahkan</span></button>
+            <button className="btn ghost danger" onClick={() => onDelete(selected)} title="Hapus (Delete)" aria-label="Hapus"><Trash2 size={18} aria-hidden /><span className="hide-xs">Hapus</span></button>
           </div>
         ) : (
         <div className="tools">

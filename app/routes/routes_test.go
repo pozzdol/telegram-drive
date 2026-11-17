@@ -138,6 +138,32 @@ func TestAuthAndFolders(t *testing.T) {
 	h.ServeHTTP(rec, plain)
 	expect(415, rec.Code, "POST with text/plain body")
 
+	// Bulk move: several items into one folder; never a folder into itself or its subfolder.
+	_, out = call("POST", "/api/folders", `{"name":"M1"}`)
+	idM1 := itoa(int(out["id"].(float64)))
+	_, out = call("POST", "/api/folders", `{"name":"M2"}`)
+	idM2 := itoa(int(out["id"].(float64)))
+	_, out = call("POST", "/api/folders", `{"name":"M1child","parent_id":`+idM1+`}`)
+	idM1c := itoa(int(out["id"].(float64)))
+	c, _ = call("POST", "/api/move", `{"folders":[`+idM1+`],"to":`+idM1c+`}`)
+	expect(400, c, "move folder into its own child")
+	c, _ = call("POST", "/api/move", `{"folders":[`+idM1+`,`+idM2+`],"to":`+idM1+`}`)
+	expect(400, c, "move folder into itself")
+	c, _ = call("POST", "/api/move", `{"folders":[`+idM2+`],"to":999999}`)
+	expect(404, c, "move into unknown folder")
+	c, out = call("POST", "/api/move", `{"folders":[`+idM2+`],"to":`+idM1c+`}`)
+	expect(200, c, "bulk move")
+	if out["folders"].(float64) != 1 {
+		t.Fatalf("bulk move count wrong: %v", out)
+	}
+	_, out = call("GET", "/api/list?folder_id="+idM1c, "")
+	if fs := out["folders"].([]any); len(fs) != 1 || fs[0].(map[string]any)["name"] != "M2" {
+		t.Fatalf("M2 should now be inside M1child: %v", out)
+	}
+	c, _ = call("POST", "/api/move", `{"folders":[`+idM1+`],"to":0}`)
+	expect(200, c, "move to root")
+	call("POST", "/api/delete", `{"folders":[`+idM1+`]}`)
+
 	// Bulk delete removes a folder with everything below it, and only the caller's folders.
 	_, out = call("POST", "/api/folders", `{"name":"X"}`)
 	idX := itoa(int(out["id"].(float64)))

@@ -260,6 +260,72 @@ func (c Controller) PutThumb(w http.ResponseWriter, r *http.Request, uid int64) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// POST /api/move {"files":[ids],"folders":[ids],"to":folderID} — moves several items at once;
+// "to" 0 is the root. All or nothing: one transaction, and a folder can never go into itself
+// or one of its own subfolders.
+func (c Controller) BulkMove(w http.ResponseWriter, r *http.Request, uid int64) {
+	var req struct {
+		Files   []int64 `json:"files"`
+		Folders []int64 `json:"folders"`
+		To      int64   `json:"to"`
+	}
+	if !utils.ReadJSON(w, r, &req) {
+		return
+	}
+	if n := len(req.Files) + len(req.Folders); n == 0 || n > 5000 {
+		utils.WriteErr(w, http.StatusBadRequest, "select 1-5000 items")
+		return
+	}
+	if req.Files == nil {
+		req.Files = []int64{}
+	}
+	if req.Folders == nil {
+		req.Folders = []int64{}
+	}
+	ref, err := models.FolderRef(c.DB, uid, req.To)
+	if err != nil {
+		utils.WriteErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if req.To != 0 && len(req.Folders) > 0 {
+		// Walk up from the target: if a selected folder is on the way, the move would make a loop.
+		var loops int
+		if err := c.DB.QueryRow(`WITH RECURSIVE up(id) AS (
+				SELECT $1::bigint UNION SELECT parent_id FROM folders JOIN up ON folders.id = up.id WHERE parent_id IS NOT NULL
+			) SELECT count(*) FROM up WHERE id = ANY($2)`, req.To, req.Folders).Scan(&loops); err != nil {
+			utils.ServerErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		if loops > 0 {
+			utils.WriteErr(w, http.StatusBadRequest, "cannot move a folder into itself or one of its subfolders")
+			return
+		}
+	}
+	tx, err := c.DB.BeginTx(r.Context(), nil)
+	if err != nil {
+		utils.ServerErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	defer tx.Rollback()
+	files, err := tx.Exec(`UPDATE files SET folder_id = $1 WHERE user_id = $2 AND id = ANY($3)`, ref, uid, req.Files)
+	if err != nil {
+		utils.ServerErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	folders, err := tx.Exec(`UPDATE folders SET parent_id = $1 WHERE user_id = $2 AND id = ANY($3)`, ref, uid, req.Folders)
+	if err != nil {
+		utils.ServerErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		utils.ServerErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	nf, _ := files.RowsAffected()
+	nd, _ := folders.RowsAffected()
+	utils.WriteJSON(w, http.StatusOK, map[string]int64{"files": nf, "folders": nd})
+}
+
 // POST /api/delete {"files":[ids],"folders":[ids]} — deletes the files and the folders with
 // everything inside them (subfolders and their files). Telegram messages go first, 100 at a
 // time; rows are removed only for messages that are gone, so a failure never orphans bytes.

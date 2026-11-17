@@ -187,9 +187,10 @@ export function Crumbs({ path, onGo, root = 'Drive saya', small }) {
   )
 }
 
-export function MoveDialog({ target, onMove, onClose }) {
+// items: [{ type, item }]. Starts in the folder the items are in.
+export function MoveDialog({ items, onMove, onClose }) {
   const ref = useModal()
-  const [at, setAt] = useState(0)
+  const [at, setAt] = useState(() => (items[0].type === 'file' ? items[0].item.folder_id : items[0].item.parent_id) ?? 0)
   const [d, setD] = useState(null)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
@@ -199,17 +200,28 @@ export function MoveDialog({ target, onMove, onClose }) {
     api(`/api/list?folder_id=${at}`).then(setD, e => setErr(e.message))
   }, [at])
 
-  // A folder cannot go into itself; the backend also blocks moving into its subfolders.
-  const folders = d?.folders.filter(f => !(target.type === 'folder' && f.id === target.item.id)) || []
+  // A folder cannot go into itself (so it is not offered); the backend also blocks its subfolders.
+  const moving = new Set(items.filter(x => x.type === 'folder').map(x => x.item.id))
+  const folders = d?.folders.filter(f => !moving.has(f.id)) || []
+  const from = items[0].type === 'file' ? items[0].item.folder_id : items[0].item.parent_id
+  const same = items.every(x => (x.type === 'file' ? x.item.folder_id : x.item.parent_id) === from)
+  const here = same && (from ?? 0) === at // already there: nothing to do
   const submit = async () => {
     setBusy(true)
     setErr('')
-    try { await onMove(at); ref.current.close() } catch (e) { setErr(e.message) } finally { setBusy(false) }
+    try {
+      await onMove(at)
+      ref.current.close()
+    } catch (e) {
+      setErr(e.status === 400 ? 'Folder tidak bisa dipindahkan ke dalam dirinya sendiri atau ke subfoldernya.' : e.message)
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
     <dialog ref={ref} className="sheet move" onClose={onClose}>
-      <h2>Pindahkan “{target.item.name}”</h2>
+      <h2>{items.length === 1 ? <>Pindahkan “{items[0].item.name}”</> : `Pindahkan ${items.length} item`}</h2>
       <Crumbs path={d?.path || []} onGo={setAt} small />
       <ul className="picker">
         {!d ? [70, 45, 60].map((w, i) => <li key={i} className="picker-sk"><Sk w={18} h={18} r={4} /><Sk w={`${w}%`} /></li>)
@@ -220,7 +232,9 @@ export function MoveDialog({ target, onMove, onClose }) {
       {err && <p className="err" role="alert">{err}</p>}
       <footer>
         <button className="btn ghost" onClick={() => ref.current.close()}>Batal</button>
-        <button className="btn primary" onClick={submit} disabled={busy || !d}>Pindahkan ke sini</button>
+        <button className="btn primary" onClick={submit} disabled={busy || !d || here} title={here ? 'Item sudah ada di folder ini' : undefined}>
+          {busy ? 'Memindahkan…' : 'Pindahkan ke sini'}
+        </button>
       </footer>
     </dialog>
   )

@@ -4,7 +4,7 @@ A self-hosted cloud drive that stores your files in a private Telegram channel. 
 
 It has a web UI (in Indonesian) that should feel familiar if you use Google Drive, plus a Google Photos-style gallery.
 
-- **Drive.** Folders, list and grid views, sort, search, rename, move, delete, drag and drop upload, right-click menus. Select with Ctrl/Cmd+A, Ctrl/Cmd+click, Shift+click, by dragging a box with the mouse, or by long-pressing on a phone, then delete files and whole folders at once.
+- **Drive.** Folders, list and grid views, sort, search, rename, move, delete, drag and drop upload, right-click menus. Select with Ctrl/Cmd+A, Ctrl/Cmd+click, Shift+click, by dragging a box with the mouse, or by long-pressing on a phone, then move or delete them all at once (folders together with everything inside).
 - **Photos.** Every photo and video in one timeline, grouped by the day it was taken (EXIF date for JPEGs), with a full-screen viewer, swipe and keyboard navigation.
 - **Previews.** Image thumbnails made on the server; video thumbnails made in the browser, so no ffmpeg is needed.
 - **Documents.** Markdown renders in the viewer (headings, tables, task lists, code blocks), sanitised with DOMPurify; other text files (code, logs, JSON, CSV) show as plain text. Big files load only their first 512 KB.
@@ -188,6 +188,7 @@ Authentication uses the `token` cookie set by login, or `Authorization: Bearer <
 | PATCH | `/api/files/{id}` | `{"name"?, "folder_id"?}` | Rename and/or move |
 | DELETE | `/api/files/{id}` | | Also deletes the message in the channel (skipped when it is already gone) |
 | POST | `/api/files/{id}/check` | | Asks Telegram whether the file's message still exists: `{missing}` |
+| POST | `/api/move` | `{"files":[ids],"folders":[ids],"to":id}` | Bulk move into one folder (`0` = root), in one transaction; `400` if a folder would go into itself or its subfolder |
 | POST | `/api/delete` | `{"files":[ids],"folders":[ids]}` | Bulk delete. Folders go with everything inside them; Telegram messages are deleted first, 100 per call |
 
 ## Contributing

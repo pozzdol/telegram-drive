@@ -151,9 +151,12 @@ export default function App() {
     }
   }
   const remove = (type, it) => removeMany([{ type, item: it }])
-  const move = async (target, to) => {
-    const body = target.type === 'file' ? { folder_id: to } : { parent_id: to }
-    await api(`/api/${target.type}s/${target.item.id}`, { method: 'PATCH', body })
+  // items: [{ type, item }]; to: folder id, 0 = root. Errors stay in the dialog.
+  const move = async (items, to) => {
+    await api('/api/move', {
+      method: 'POST',
+      body: { files: items.filter(x => x.type === 'file').map(x => x.item.id), folders: items.filter(x => x.type === 'folder').map(x => x.item.id), to },
+    })
     refresh()
   }
   // A file deleted in Telegram: explain, and offer to remove the leftover record.
@@ -234,7 +237,11 @@ export default function App() {
   // type null: right-click on a multi-selection; it is then the selected [{ type, item }].
   const itemMenu = (type, it, at) => setMenu(type === null ? {
     at,
-    items: [{ label: `Hapus ${it.length} item`, icon: Trash2, danger: true, onSelect: () => removeMany(it) }],
+    items: [
+      { label: `Pindahkan ${it.length} item`, icon: FolderInput, onSelect: () => setMoving(it) },
+      '-',
+      { label: `Hapus ${it.length} item`, icon: Trash2, danger: true, onSelect: () => removeMany(it) },
+    ],
   } : {
     at,
     items: [
@@ -245,7 +252,7 @@ export default function App() {
       ...(route.q ? [{ label: 'Tampilkan lokasi', icon: FolderInput, onSelect: () => nav({ folder: type === 'file' ? it.folder_id || 0 : it.parent_id || 0 }) }] : []),
       '-',
       { label: 'Ganti nama', icon: Pencil, onSelect: () => rename(type, it) },
-      { label: 'Pindahkan', icon: FolderInput, onSelect: () => setMoving({ type, item: it }) },
+      { label: 'Pindahkan', icon: FolderInput, onSelect: () => setMoving([{ type, item: it }]) },
       '-',
       it.missing
         ? { label: 'Hapus dari aplikasi', icon: Trash2, danger: true, onSelect: () => showMissing(it) }
@@ -394,6 +401,7 @@ export default function App() {
             onOpenFile={openFile}
             onMenu={itemMenu}
             onDelete={removeMany}
+            onMove={setMoving}
             onUpload={() => inputRef.current.click()}
           />
         )}
@@ -410,7 +418,7 @@ export default function App() {
       <UploadPanel uploads={uploads} onClear={() => setUploads(us => us.filter(u => u.status === 'active'))} />
       {menu && <Menu at={menu.at} items={menu.items} onClose={closeMenu} />}
       {ask && <AskDialog ask={ask} onDone={v => { setAsk(null); ask.resolve(v) }} />}
-      {moving && <MoveDialog target={moving} onMove={to => move(moving, to)} onClose={() => setMoving(null)} />}
+      {moving && <MoveDialog items={moving} onMove={to => move(moving, to)} onClose={() => setMoving(null)} />}
       {pwOpen && <PasswordDialog onClose={() => setPwOpen(false)} />}
       {lightbox && <Lightbox items={lightbox.items} start={lightbox.start} onClose={() => setLightbox(null)} onDelete={deleteFromLightbox} onMissing={refresh} />}
     </div>
