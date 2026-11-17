@@ -1,7 +1,7 @@
 // Shared building blocks: formatting, file icons, thumbnails, menus, dialogs, upload panel.
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
-  ChevronDown, ChevronRight, ChevronUp, CircleAlert, CircleCheck, Eye, EyeOff, File as FileIcon, FileArchive,
+  Check, ChevronDown, ChevronRight, ChevronUp, CircleAlert, CircleCheck, Eye, EyeOff, File as FileIcon, FileArchive,
   FileAudio, FileImage, FileText, FileVideo, Folder, TriangleAlert, X,
 } from 'lucide-react'
 import { api, fileURL, thumbURL } from './api.js'
@@ -77,7 +77,8 @@ export function useModal() {
   return ref
 }
 
-// Context menu at a viewport point. items: { label, icon, onSelect, danger } or '-' for a divider.
+// Context menu at a viewport point. items: { label, icon, onSelect, danger, checked? } or '-' for a divider.
+// Items with `checked` (true/false) are radio choices, as in a dropdown.
 export function Menu({ at, items, onClose }) {
   const ref = useRef(null)
   const [pos, setPos] = useState({ left: at.x, top: at.y, visibility: 'hidden' })
@@ -86,7 +87,7 @@ export function Menu({ at, items, onClose }) {
     const r = ref.current.getBoundingClientRect()
     const top = at.y + r.height > innerHeight - 8 ? at.y - r.height : at.y
     setPos({ left: Math.max(8, Math.min(at.x, innerWidth - r.width - 8)), top: Math.max(8, top) })
-    ref.current.querySelector('button')?.focus()
+    ;(ref.current.querySelector('[aria-checked="true"]') || ref.current.querySelector('button'))?.focus()
   }, [at])
 
   useEffect(() => {
@@ -113,8 +114,11 @@ export function Menu({ at, items, onClose }) {
   return (
     <div ref={ref} className="menu" role="menu" style={pos} onKeyDown={arrows}>
       {items.map((it, i) => it === '-' ? <hr key={i} /> : (
-        <button key={i} role="menuitem" className={it.danger ? 'danger' : undefined} onClick={() => { onClose(); it.onSelect() }}>
-          <it.icon size={18} aria-hidden /> {it.label}
+        <button key={i} role={it.checked === undefined ? 'menuitem' : 'menuitemradio'} aria-checked={it.checked}
+          className={it.danger ? 'danger' : undefined} onClick={() => { onClose(); it.onSelect() }}>
+          {it.checked !== undefined
+            ? <Check size={18} aria-hidden className={it.checked ? 'tick' : 'tick off'} />
+            : <it.icon size={18} aria-hidden />} {it.label}
         </button>
       ))}
     </div>
@@ -232,7 +236,7 @@ export function MoveDialog({ items, onMove, onClose }) {
       {err && <p className="err" role="alert">{err}</p>}
       <footer>
         <button className="btn ghost" onClick={() => ref.current.close()}>Batal</button>
-        <button className="btn primary" onClick={submit} disabled={busy || !d || here} title={here ? 'Item sudah ada di folder ini' : undefined}>
+        <button className="btn primary" onClick={submit} disabled={busy || !d || here} data-tip={here ? 'Item sudah ada di folder ini' : undefined}>
           {busy ? 'Memindahkan…' : 'Pindahkan ke sini'}
         </button>
       </footer>
@@ -268,7 +272,7 @@ export function UploadPanel({ uploads, onClear }) {
             return (
               <li key={u.key}>
                 <div className="u-row">
-                  <span className="fname" title={u.name}>{u.name}</span>
+                  <span className="fname" data-tip={u.name} data-tip-overflow>{u.name}</span>
                   {u.status === 'done' && <CircleCheck size={18} className="ok" aria-label="Selesai" />}
                   {u.status === 'error' && <CircleAlert size={18} className="bad" aria-label="Gagal" />}
                 </div>
@@ -350,8 +354,82 @@ export function PhotoSkeleton({ tiles = 18, title = true }) {
 // Shown on files whose message was deleted in Telegram: only the record is left.
 export function MissingBadge({ compact }) {
   return (
-    <span className="missing-badge" title="File ini sudah tidak ada di Telegram">
+    <span className="missing-badge" data-tip="File ini sudah tidak ada di Telegram">
       <TriangleAlert size={14} aria-hidden />{compact ? <span className="sr">Hilang di Telegram</span> : ' Hilang di Telegram'}
     </span>
   )
+}
+
+// A dropdown that looks like the rest of the app (the native <select> popup cannot be styled).
+// options: [{ value, label }].
+export function Dropdown({ value, options, onChange, label }) {
+  const [at, setAt] = useState(null)
+  const current = options.find(o => o.value === value)
+  const close = useCallback(() => setAt(null), [])
+  const open = e => {
+    const r = e.currentTarget.getBoundingClientRect()
+    setAt(a => (a ? null : { x: r.left, y: r.bottom + 4 }))
+  }
+  return (
+    <>
+      <button type="button" className="dropdown" onClick={open} aria-haspopup="menu" aria-expanded={!!at} aria-label={`${label}: ${current?.label}`}>
+        <span>{current?.label}</span><ChevronDown size={16} aria-hidden />
+      </button>
+      {at && <Menu at={at} onClose={close} items={options.map(o => ({ label: o.label, checked: o.value === value, onSelect: () => onChange(o.value) }))} />}
+    </>
+  )
+}
+
+// On/off control in the app's style, in place of a native checkbox.
+export function Switch({ checked, onChange, children }) {
+  return (
+    <button type="button" role="switch" aria-checked={checked} className="switch-row" onClick={() => onChange(!checked)}>
+      <span className="switch" aria-hidden><span /></span>
+      <span>{children}</span>
+    </button>
+  )
+}
+
+// One tooltip for the whole app, instead of the operating system's title popups.
+// data-tip="text" shows on hover (after a short delay) and on keyboard focus;
+// data-tip-overflow shows only when the element's text is cut off with an ellipsis.
+export function useTooltips() {
+  useEffect(() => {
+    const tip = document.createElement('div')
+    tip.className = 'tooltip'
+    tip.setAttribute('role', 'tooltip')
+    document.body.appendChild(tip)
+    let timer, current
+    const hide = () => { clearTimeout(timer); current = null; tip.classList.remove('show') }
+    const show = el => {
+      const r = el.getBoundingClientRect()
+      tip.textContent = el.dataset.tip
+      tip.classList.add('show')
+      const t = tip.getBoundingClientRect()
+      const below = r.bottom + 8 + t.height < innerHeight
+      tip.style.left = `${Math.max(8, Math.min(r.left + r.width / 2 - t.width / 2, innerWidth - t.width - 8))}px`
+      tip.style.top = `${below ? r.bottom + 8 : r.top - t.height - 8}px`
+    }
+    const enter = e => {
+      const el = e.target.closest?.('[data-tip]')
+      if (!el || el === current) return
+      hide()
+      if ('tipOverflow' in el.dataset && el.scrollWidth <= el.clientWidth) return
+      current = el
+      timer = setTimeout(() => show(el), e.type === 'focusin' ? 0 : 450)
+    }
+    const leave = e => { if (current && !current.contains(e.relatedTarget)) hide() }
+    addEventListener('pointerover', enter)
+    addEventListener('pointerout', leave)
+    addEventListener('focusin', enter)
+    addEventListener('focusout', hide)
+    addEventListener('pointerdown', hide, true)
+    addEventListener('scroll', hide, true)
+    return () => {
+      hide(); tip.remove()
+      removeEventListener('pointerover', enter); removeEventListener('pointerout', leave)
+      removeEventListener('focusin', enter); removeEventListener('focusout', hide)
+      removeEventListener('pointerdown', hide, true); removeEventListener('scroll', hide, true)
+    }
+  }, [])
 }

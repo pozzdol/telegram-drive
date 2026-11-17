@@ -3,6 +3,7 @@ import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { ArrowLeft, ChevronLeft, ChevronRight, Download, Info, Trash2, TriangleAlert } from 'lucide-react'
 import { api, fileURL, thumbURL } from './api.js'
 import { fmtDate, fmtDateTime, fmtSize, hasThumb, kind, textKind, useModal } from './ui.jsx'
+import Player from './Player.jsx'
 // Markdown libraries load only when a text file is opened.
 const TextPreview = lazy(() => import('./TextPreview.jsx'))
 
@@ -55,7 +56,7 @@ export default function Lightbox({ items, start, onClose, onDelete, onMissing })
     >
       <header className="lb-bar">
         <button className="icon-btn" onClick={() => ref.current.close()} aria-label="Kembali"><ArrowLeft size={22} /></button>
-        <span className="lb-name" title={f.name}>{f.name}</span>
+        <span className="lb-name" data-tip={f.name} data-tip-overflow>{f.name}</span>
         <button className="icon-btn" onClick={() => setInfo(v => !v)} aria-label="Info" aria-pressed={info}><Info size={20} /></button>
         <a className="icon-btn" href={fileURL(f.id)} aria-label="Download"><Download size={20} /></a>
         <button className="icon-btn" onClick={() => onDelete(f)} aria-label="Hapus"><Trash2 size={20} /></button>
@@ -66,6 +67,7 @@ export default function Lightbox({ items, start, onClose, onDelete, onMissing })
         className={`lb-stage${k === 'text' ? ' text' : ''}`}
         onPointerUp={e => {
           if (k === 'text') return // let text scroll sideways without changing file
+          if (e.target.closest?.('.player-bar')) return // dragging the seek bar is not a swipe
           const dx = e.clientX - (swipe.current ?? e.clientX)
           if (Math.abs(dx) > 60 && e.pointerType !== 'mouse') go(dx < 0 ? 1 : -1)
           swipe.current = null
@@ -91,8 +93,10 @@ export default function Lightbox({ items, start, onClose, onDelete, onMissing })
             <img key={f.id} className={`lb-img${loaded ? '' : ' loading'}`} src={fileURL(f.id, true)} alt={f.name} onLoad={() => setLoaded(true)} onError={() => failed(f)} />
           </>
         )}
-        {!gone.has(f.id) && k === 'video' && <video key={f.id} className="lb-img" src={fileURL(f.id, true)} poster={thumbURL(f)} controls autoPlay playsInline onError={() => failed(f)} />}
-        {!gone.has(f.id) && k === 'audio' && <audio key={f.id} src={fileURL(f.id, true)} controls autoPlay onError={() => failed(f)} />}
+        {!gone.has(f.id) && (k === 'video' || k === 'audio') && (
+          <Player key={f.id} src={fileURL(f.id, true)} poster={k === 'video' ? thumbURL(f) : undefined}
+            audio={k === 'audio'} label={f.name} onError={() => failed(f)} />
+        )}
       </div>
 
       {i > 0 && <button className="lb-nav prev" onClick={() => go(-1)} aria-label="Sebelumnya"><ChevronLeft size={28} /></button>}

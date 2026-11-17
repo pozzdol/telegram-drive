@@ -5,7 +5,7 @@
 // With a mouse, dragging draws a box that selects everything it touches (Ctrl/Shift adds to it).
 import { useEffect, useRef, useState } from 'react'
 import { EllipsisVertical, FolderInput, LayoutGrid, List, Play, Search, Trash2, Upload, X } from 'lucide-react'
-import { Crumbs, FolderIcon, GridSkeleton, KindIcon, ListSkeleton, MissingBadge, Thumb, fmtDate, fmtSize, kind } from './ui.jsx'
+import { Crumbs, Dropdown, FolderIcon, GridSkeleton, KindIcon, ListSkeleton, MissingBadge, Thumb, fmtDate, fmtSize, kind } from './ui.jsx'
 
 const SORTS = {
   name: { label: 'Nama', cmp: (a, b) => a.name.localeCompare(b.name, 'id', { numeric: true, sensitivity: 'base' }) },
@@ -177,22 +177,18 @@ export default function Drive({ data, query, view, sort, onView, onSort, onGo, o
         </h1>
         {selected.length > 0 ? (
           <div className="tools selbar" role="toolbar" aria-label="Item terpilih">
-            <button className="icon-btn" onClick={() => setSel(new Set())} aria-label="Batalkan pilihan" title="Batalkan pilihan (Esc)"><X size={18} /></button>
+            <button className="icon-btn" onClick={() => setSel(new Set())} aria-label="Batalkan pilihan" data-tip="Batalkan pilihan (Esc)"><X size={18} /></button>
             <strong>{selected.length} dipilih</strong>
-            <button className="btn ghost" onClick={() => onMove(selected)} title="Pindahkan ke folder lain" aria-label="Pindahkan"><FolderInput size={18} aria-hidden /><span className="hide-xs">Pindahkan</span></button>
-            <button className="btn ghost danger" onClick={() => onDelete(selected)} title="Hapus (Delete)" aria-label="Hapus"><Trash2 size={18} aria-hidden /><span className="hide-xs">Hapus</span></button>
+            <button className="btn ghost" onClick={() => onMove(selected)} data-tip="Pindahkan ke folder lain" aria-label="Pindahkan"><FolderInput size={18} aria-hidden /><span className="hide-xs">Pindahkan</span></button>
+            <button className="btn ghost danger" onClick={() => onDelete(selected)} data-tip="Hapus (Delete)" aria-label="Hapus"><Trash2 size={18} aria-hidden /><span className="hide-xs">Hapus</span></button>
           </div>
         ) : (
         <div className="tools">
-          <label className="sort">
-            <span className="sr">Urutkan</span>
-            <select value={sort} onChange={e => onSort(e.target.value)}>
-              {Object.entries(SORTS).map(([k, s]) => <option key={k} value={k}>{s.label}</option>)}
-            </select>
-          </label>
+          <Dropdown label="Urutkan" value={sort} onChange={onSort}
+            options={Object.entries(SORTS).map(([k, s]) => ({ value: k, label: s.label }))} />
           <div className="seg" role="group" aria-label="Tampilan">
-            <button aria-pressed={view === 'list'} onClick={() => onView('list')} aria-label="Daftar" title="Daftar"><List size={18} /></button>
-            <button aria-pressed={view === 'grid'} onClick={() => onView('grid')} aria-label="Petak" title="Petak"><LayoutGrid size={18} /></button>
+            <button aria-pressed={view === 'list'} onClick={() => onView('list')} aria-label="Daftar" data-tip="Daftar"><List size={18} /></button>
+            <button aria-pressed={view === 'grid'} onClick={() => onView('grid')} aria-label="Petak" data-tip="Petak"><LayoutGrid size={18} /></button>
           </div>
         </div>
         )}
@@ -222,7 +218,7 @@ export default function Drive({ data, query, view, sort, onView, onSort, onGo, o
             {folders.map(f => (
               <tr key={`d${f.id}`} {...item('folder', f)}>
                 <td><button className="name" onClick={open('folder', f)}><FolderIcon />
-                  <span className="name-col"><span className="nm">{f.name}</span><span className="meta">{fmtDate(f.created_at)}</span></span>
+                  <span className="name-col"><span className="nm" data-tip={f.name} data-tip-overflow>{f.name}</span><span className="meta">{fmtDate(f.created_at)}</span></span>
                 </button></td>
                 <td className="hide-sm muted">{fmtDate(f.created_at)}</td>
                 <td className="num hide-xs muted">—</td>
@@ -233,7 +229,7 @@ export default function Drive({ data, query, view, sort, onView, onSort, onGo, o
               <tr key={`f${f.id}`} {...item('file', f)}>
                 <td><button className={`name${f.missing ? ' missing' : ''}`} onClick={open('file', f)}><KindIcon mime={f.mime} />
                   <span className="name-col">
-                    <span className="nm-row"><span className="nm">{f.name}</span>{f.missing && <MissingBadge />}</span>
+                    <span className="nm-row"><span className="nm" data-tip={f.name} data-tip-overflow>{f.name}</span>{f.missing && <MissingBadge />}</span>
                     <span className="meta">{f.missing ? 'Hilang di Telegram' : `${fmtDate(f.created_at)} · ${fmtSize(f.size)}`}</span>
                   </span>
                 </button></td>
@@ -272,7 +268,7 @@ export default function Drive({ data, query, view, sort, onView, onSort, onGo, o
                     </button>
                     <div className="card-foot">
                       <KindIcon mime={f.mime} size={18} />
-                      <span className="fname" title={f.name}>{f.name}</span>
+                      <span className="fname" data-tip={f.name} data-tip-overflow>{f.name}</span>
                       {more('file', f)}
                     </div>
                   </li>

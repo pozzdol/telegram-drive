@@ -10,7 +10,7 @@ import Drive from './Drive.jsx'
 import Photos from './Photos.jsx'
 import Lightbox from './Lightbox.jsx'
 import Users, { Avatar, PasswordDialog } from './Users.jsx'
-import { AskDialog, ListSkeleton, Menu, MoveDialog, Sk, UploadPanel, fmtSize, isViewable, kind } from './ui.jsx'
+import { AskDialog, ListSkeleton, useTooltips, Menu, MoveDialog, Sk, UploadPanel, fmtSize, isViewable, kind } from './ui.jsx'
 
 // ---- URL state: ?view=photos | ?view=users | ?folder=12 | ?q=text ----
 const VIEWS = ['photos', 'users']
@@ -32,6 +32,7 @@ const pref = (k, def) => { try { return localStorage.getItem(k) || def } catch {
 const savePref = (k, v) => { try { localStorage.setItem(k, v) } catch { /* not persisted */ } }
 
 export default function App() {
+  useTooltips()
   const [authed, setAuthed] = useState(null) // null = checking
   const [route, setRoute] = useState(readRoute)
   const [data, setData] = useState(null)
@@ -367,7 +368,7 @@ export default function App() {
           {query && <button type="button" className="icon-btn" onClick={() => nav({ folder: route.folder })} aria-label="Hapus pencarian"><X size={18} /></button>}
         </form>
         <button className="account-btn" onClick={accountMenu} aria-haspopup="menu"
-          aria-label={me ? `Akun: ${me.username}` : 'Akun'} title={me?.username}>
+          aria-label={me ? `Akun: ${me.username}` : 'Akun'} data-tip={me?.username}>
           {me ? <Avatar name={me.username} size={36} /> : <LogOut size={20} />}
         </button>
       </header>

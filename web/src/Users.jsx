@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { EllipsisVertical, KeyRound, Pencil, ShieldCheck, ShieldOff, Trash2, UserPlus } from 'lucide-react'
 import { api } from './api.js'
-import { Sk, fmtDate, fmtSize, useModal } from './ui.jsx'
+import { Sk, Switch, fmtDate, fmtSize, useModal } from './ui.jsx'
 
 const MIN_PW = 8
 
@@ -129,7 +129,8 @@ function AddUserDialog({ onClose }) {
   const ref = useModal()
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
-  const added = useRef(false) // a ref: the close event fires before React re-renders
+  const added = useRef(false)
+  const [admin, setAdmin] = useState(false) // a ref: the close event fires before React re-renders
 
   const submit = async e => {
     e.preventDefault()
@@ -139,7 +140,7 @@ function AddUserDialog({ onClose }) {
     try {
       await api('/api/admin/users', {
         method: 'POST',
-        body: { username: f.get('username').trim(), password: f.get('password'), is_admin: f.get('admin') === 'on' },
+        body: { username: f.get('username').trim(), password: f.get('password'), is_admin: admin },
       })
       added.current = true
       ref.current.close()
@@ -156,7 +157,7 @@ function AddUserDialog({ onClose }) {
         <label>Username<input name="username" required minLength={3} maxLength={64} autoComplete="off" autoFocus /></label>
         <label>Password<input name="password" type="password" required minLength={MIN_PW} autoComplete="new-password" /></label>
         <p className="muted small">Minimal {MIN_PW} karakter. Berikan ke anggota keluarga; mereka bisa menggantinya sendiri nanti.</p>
-        <label className="check"><input type="checkbox" name="admin" /> Jadikan admin (bisa mengatur pengguna)</label>
+        <Switch checked={admin} onChange={setAdmin}>Jadikan admin (bisa mengatur pengguna)</Switch>
         {err && <p className="err" role="alert">{err}</p>}
         <footer>
           <button type="button" className="btn ghost" onClick={() => ref.current.close()}>Batal</button>
