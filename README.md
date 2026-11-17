@@ -87,26 +87,32 @@ Both must be subdomains of **the same domain**. The login cookie uses `SameSite=
 
 ### Backend on a Linux server
 
+No Go is needed on the server: every push to `main` makes CI build Linux binaries (amd64 and arm64) and publish them to the [`edge` release](https://github.com/pozzdol/telegram-drive/releases/tag/edge). The deploy script downloads the one built for the commit it checks out and verifies its checksum. Compiling on the server needs more than 3 GB of RAM because of the Telegram client library.
+
 ```bash
-# once, as root: Go from https://go.dev/dl in /usr/local/go, plus git
+# once, as root (needs git and curl)
 git clone https://github.com/pozzdol/telegram-drive.git /opt/telegram-drive/src
 cp /opt/telegram-drive/src/.env.example /opt/telegram-drive/.env    # fill it in
 mkdir -p /opt/telegram-drive/data && chown -R ubuntu:ubuntu /opt/telegram-drive/.env /opt/telegram-drive/data
 ```
 
-Set `ALLOWED_ORIGIN=https://drive.example.com` in `.env`. The unit in `deploy/telegram-drive.service` runs the binary as `ubuntu` and listens on `127.0.0.1` only; edit it if your user differs.
+Set `DATABASE_URL` and `ALLOWED_ORIGIN=https://drive.example.com` in `.env`. The unit in `deploy/telegram-drive.service` runs the binary as `ubuntu` and listens on `127.0.0.1` only; edit it if your user differs.
 
-Log in to Telegram once by hand, because the service cannot answer the code prompt (or copy an existing `data/telegram.session`). Stop it with Ctrl-C once it prints `listening on`:
-
-```bash
-cd /opt/telegram-drive/src && go build -o ../telegram-drive . && cd .. && sudo -u ubuntu ./telegram-drive
-```
-
-Every deploy after that, including the first, is one command. It pulls `main`, runs the tests, builds, installs the unit and restarts the service:
+Every deploy, including the first, is one command. It pulls `main`, downloads that commit's binary, installs the unit and restarts the service. Run it after the GitHub Actions run for your push has finished:
 
 ```bash
 sudo /opt/telegram-drive/src/deploy/deploy.sh
 ```
+
+The first start needs a Telegram login, which the service cannot type in. Either copy an existing `data/telegram.session`, or stop the service and run the binary once by hand, then stop it with Ctrl-C when it prints `listening on`:
+
+```bash
+sudo systemctl stop telegram-drive
+cd /opt/telegram-drive && sudo -u ubuntu ./telegram-drive
+sudo systemctl start telegram-drive
+```
+
+To compile on the server instead (more than 3 GB of RAM, Go in `/usr/local/go`), run the script with `BUILD_FROM_SOURCE=1`.
 
 Never run the same `telegram.session` in two places at once. Telegram may revoke it (`AUTH_KEY_DUPLICATED`).
 

@@ -33,6 +33,35 @@ jobs:
       - run: go test ./...
       - run: CGO_ENABLED=0 go build -trimpath -o telegram-drive .
 
+  # Servers download this binary instead of compiling: the Telegram client library
+  # needs more than 3 GB of RAM to build, more than a small VPS has.
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [backend, web]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build linux binaries
+        run: |
+          for arch in amd64 arm64; do
+            f=telegram-drive-linux-$arch
+            GOOS=linux GOARCH=$arch CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o $f .
+            sha256sum $f > $f.sha256
+          done
+          echo "$GITHUB_SHA" > commit.txt
+      - name: Publish to the "edge" release
+        run: |
+          gh release view edge >/dev/null 2>&1 || gh release create edge --prerelease \
+            --title "Latest main" --notes "Built automatically from the latest commit on main. Used by deploy/deploy.sh."
+          gh release upload edge telegram-drive-linux-* commit.txt --clobber
+
   web:
     runs-on: ubuntu-latest
     defaults:
