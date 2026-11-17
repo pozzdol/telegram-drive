@@ -233,6 +233,32 @@ func TestVideoThumb(t *testing.T) {
 	var jpg bytes.Buffer
 	jpeg.Encode(&jpg, image.NewRGBA(image.Rect(0, 0, 32, 18)), nil)
 
+	// A file whose message was deleted in Telegram is listed as missing, and its record can be
+	// removed without Telegram (TG is nil in tests, so any Telegram call would panic).
+	db.Exec(`INSERT INTO files (id, user_id, name, size, mime, msg_id, missing_at) VALUES (3, 1, 'gone.jpg', 10, 'image/jpeg', 3, 1), (4, 1, 'gone2.jpg', 10, 'image/jpeg', 4, 1)`)
+	listReq := httptest.NewRequest("GET", "/api/list", nil)
+	listReq.Header.Set("Authorization", "Bearer "+tok)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, listReq)
+	var list struct {
+		Files []struct {
+			ID      int64
+			Missing bool
+		}
+	}
+	json.Unmarshal(rec.Body.Bytes(), &list)
+	for _, f := range list.Files {
+		if want := f.ID >= 3; f.Missing != want {
+			t.Fatalf("file %d: missing = %v, want %v", f.ID, f.Missing, want)
+		}
+	}
+	if c := call("DELETE", "/api/files/3", tok, nil); c != 204 {
+		t.Fatalf("delete missing file: want 204, got %d", c)
+	}
+	if c := call("POST", "/api/delete", tok, []byte(`{"files":[4]}`)); c != 200 {
+		t.Fatalf("bulk delete missing file: want 200, got %d", c)
+	}
+
 	for _, tc := range []struct {
 		method, path string
 		body         []byte

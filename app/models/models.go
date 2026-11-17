@@ -21,6 +21,7 @@ type File struct {
 	Mime      string `json:"mime"`
 	CreatedAt int64  `json:"created_at"`
 	TakenAt   *int64 `json:"taken_at"` // when a photo was taken (EXIF), null if unknown
+	Missing   bool   `json:"missing"`  // the message was deleted in Telegram; only the record is left
 }
 
 type Upload struct {
@@ -37,7 +38,7 @@ type Upload struct {
 var ErrFolderNotFound = errors.New("folder not found")
 
 // FileColumns is the SELECT list matching File; QueryFiles scans rows of exactly these columns.
-const FileColumns = `id, folder_id, name, size, mime, created_at, taken_at`
+const FileColumns = `id, folder_id, name, size, mime, created_at, taken_at, missing_at IS NOT NULL`
 
 // QueryFolders runs a query selecting id, parent_id, name, created_at.
 func QueryFolders(db *sql.DB, query string, args ...any) ([]Folder, error) {
@@ -67,7 +68,7 @@ func QueryFiles(db *sql.DB, query string, args ...any) ([]File, error) {
 	out := []File{}
 	for rows.Next() {
 		var f File
-		if err := rows.Scan(&f.ID, &f.FolderID, &f.Name, &f.Size, &f.Mime, &f.CreatedAt, &f.TakenAt); err != nil {
+		if err := rows.Scan(&f.ID, &f.FolderID, &f.Name, &f.Size, &f.Mime, &f.CreatedAt, &f.TakenAt, &f.Missing); err != nil {
 			return nil, err
 		}
 		if f.TakenAt != nil && *f.TakenAt == 0 {

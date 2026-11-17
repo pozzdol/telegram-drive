@@ -1,15 +1,25 @@
 // Full-screen viewer for photos, videos and audio, with prev/next, keys and swipe.
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ChevronLeft, ChevronRight, Download, Info, Trash2 } from 'lucide-react'
-import { fileURL, thumbURL } from './api.js'
+import { ArrowLeft, ChevronLeft, ChevronRight, Download, Info, Trash2, TriangleAlert } from 'lucide-react'
+import { api, fileURL, thumbURL } from './api.js'
 import { fmtDate, fmtDateTime, fmtSize, hasThumb, kind, useModal } from './ui.jsx'
 
-export default function Lightbox({ items, start, onClose, onDelete }) {
+export default function Lightbox({ items, start, onClose, onDelete, onMissing }) {
   const ref = useModal()
   const [i, setI] = useState(start)
   const [loaded, setLoaded] = useState(false)
   const [info, setInfo] = useState(false)
   const swipe = useRef(null)
+  const [gone, setGone] = useState(() => new Set(items.filter(x => x.missing).map(x => x.id)))
+  // The image or video failed: ask whether the message still exists in Telegram.
+  const failed = async file => {
+    try {
+      if ((await api(`/api/files/${file.id}/check`, { method: 'POST' })).missing) {
+        setGone(s => new Set(s).add(file.id))
+        onMissing?.(file)
+      }
+    } catch { /* keep showing the normal error state */ }
+  }
   const f = items[Math.min(i, items.length - 1)]
 
   // The list shrinks when a file is deleted from here.
@@ -57,14 +67,22 @@ export default function Lightbox({ items, start, onClose, onDelete }) {
           swipe.current = null
         }}
       >
-        {k === 'image' && (
+        {gone.has(f.id) && (
+          <div className="lb-missing" role="alert">
+            <TriangleAlert size={32} aria-hidden />
+            <h2>File ini sudah tidak ada di Telegram</h2>
+            <p>Pesannya terhapus dari channel penyimpanan, jadi isinya tidak bisa dibuka lagi. Yang tersisa hanya catatannya di aplikasi.</p>
+            <button className="btn danger-fill" onClick={() => onDelete(f)}><Trash2 size={18} aria-hidden /> Hapus dari aplikasi</button>
+          </div>
+        )}
+        {!gone.has(f.id) && k === 'image' && (
           <>
             {hasThumb(f.mime) && !loaded && <img className="lb-img lb-low" src={thumbURL(f)} alt="" />}
-            <img key={f.id} className={`lb-img${loaded ? '' : ' loading'}`} src={fileURL(f.id, true)} alt={f.name} onLoad={() => setLoaded(true)} />
+            <img key={f.id} className={`lb-img${loaded ? '' : ' loading'}`} src={fileURL(f.id, true)} alt={f.name} onLoad={() => setLoaded(true)} onError={() => failed(f)} />
           </>
         )}
-        {k === 'video' && <video key={f.id} className="lb-img" src={fileURL(f.id, true)} poster={thumbURL(f)} controls autoPlay playsInline />}
-        {k === 'audio' && <audio key={f.id} src={fileURL(f.id, true)} controls autoPlay />}
+        {!gone.has(f.id) && k === 'video' && <video key={f.id} className="lb-img" src={fileURL(f.id, true)} poster={thumbURL(f)} controls autoPlay playsInline onError={() => failed(f)} />}
+        {!gone.has(f.id) && k === 'audio' && <audio key={f.id} src={fileURL(f.id, true)} controls autoPlay onError={() => failed(f)} />}
       </div>
 
       {i > 0 && <button className="lb-nav prev" onClick={() => go(-1)} aria-label="Sebelumnya"><ChevronLeft size={28} /></button>}

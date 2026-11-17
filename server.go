@@ -43,6 +43,7 @@ func main() {
 		a := &app.App{Ctx: ctx, DB: db, TG: tg, MaxUpload: cfg.MaxUploadMB << 20, UploadDir: cfg.UploadDir(), ThumbDir: cfg.ThumbDir(), Origin: cfg.AllowedOrigin, BotToken: cfg.TelegramBotToken, BotName: cfg.TelegramBotName}
 		upload.Controller{App: a}.Resume()
 		go file.Controller{App: a}.BackfillTakenAt()
+		go file.Controller{App: a}.WatchMissing(6 * time.Hour)
 
 		srv := &http.Server{Addr: cfg.Host + ":" + cfg.Port, Handler: routes.New(a), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}
 		go func() {

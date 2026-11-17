@@ -3,6 +3,8 @@ package file
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"image/jpeg"
 	"io"
@@ -13,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"telegram-drive/app/utils/tgclient"
 	"time"
 
 	"telegram-drive/app"
@@ -29,8 +32,8 @@ func (c Controller) getFile(w http.ResponseWriter, r *http.Request, uid int64) (
 	if !ok {
 		return f, 0, false
 	}
-	err := c.DB.QueryRow(`SELECT id, folder_id, name, size, mime, created_at, msg_id FROM files WHERE id = $1 AND user_id = $2`,
-		id, uid).Scan(&f.ID, &f.FolderID, &f.Name, &f.Size, &f.Mime, &f.CreatedAt, &msgID)
+	err := c.DB.QueryRow(`SELECT id, folder_id, name, size, mime, created_at, msg_id, missing_at IS NOT NULL FROM files WHERE id = $1 AND user_id = $2`,
+		id, uid).Scan(&f.ID, &f.FolderID, &f.Name, &f.Size, &f.Mime, &f.CreatedAt, &msgID, &f.Missing)
 	if err != nil {
 		utils.WriteErr(w, http.StatusNotFound, "file not found")
 		return f, 0, false
@@ -46,7 +49,7 @@ func (c Controller) Download(w http.ResponseWriter, r *http.Request, uid int64) 
 	}
 	rs, err := c.TG.Open(r.Context(), msgID, 8)
 	if err != nil {
-		utils.ServerErr(w, http.StatusBadGateway, err)
+		c.openFailed(w, f.ID, err)
 		return
 	}
 	disp := "attachment"
@@ -59,6 +62,113 @@ func (c Controller) Download(w http.ResponseWriter, r *http.Request, uid int64) 
 	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'")
 	w.Header().Set("Content-Disposition", mime.FormatMediaType(disp, map[string]string{"filename": f.Name}))
 	http.ServeContent(w, r, f.Name, time.Unix(f.CreatedAt, 0), rs)
+}
+
+// deletable is the message to delete in Telegram, or none when it is already gone there.
+func deletable(missing bool, msgID int) []int {
+	if missing {
+		return nil
+	}
+	return []int{msgID}
+}
+
+func (c Controller) deleteMessages(ctx context.Context, msgs []int) error {
+	if len(msgs) == 0 {
+		return nil
+	}
+	return c.TG.Delete(ctx, msgs...)
+}
+
+// openFailed answers a failed Telegram read. A deleted message is recorded on the file and
+// reported as 410 Gone, so the UI can say so and offer to remove the record.
+func (c Controller) openFailed(w http.ResponseWriter, fileID int64, err error) {
+	if errors.Is(err, tgclient.ErrMissing) {
+		c.DB.Exec(`UPDATE files SET missing_at = extract(epoch FROM now())::bigint WHERE id = $1 AND missing_at IS NULL`, fileID)
+		utils.WriteJSON(w, http.StatusGone, map[string]any{"error": "this file no longer exists in Telegram", "missing": true})
+		return
+	}
+	utils.ServerErr(w, http.StatusBadGateway, err)
+}
+
+// POST /api/files/{id}/check — asks Telegram whether the file's message still exists.
+func (c Controller) Check(w http.ResponseWriter, r *http.Request, uid int64) {
+	f, msgID, ok := c.getFile(w, r, uid)
+	if !ok {
+		return
+	}
+	present, err := c.TG.Present(r.Context(), []int{msgID})
+	if err != nil {
+		utils.ServerErr(w, http.StatusBadGateway, err)
+		return
+	}
+	c.setMissing(map[int64]bool{f.ID: !present[msgID]})
+	utils.WriteJSON(w, http.StatusOK, map[string]bool{"missing": !present[msgID]})
+}
+
+// setMissing records which files are gone from Telegram (true) or present again (false).
+func (c Controller) setMissing(state map[int64]bool) {
+	for id, missing := range state {
+		if missing {
+			c.DB.Exec(`UPDATE files SET missing_at = extract(epoch FROM now())::bigint WHERE id = $1 AND missing_at IS NULL`, id)
+		} else {
+			c.DB.Exec(`UPDATE files SET missing_at = NULL WHERE id = $1 AND missing_at IS NOT NULL`, id)
+		}
+	}
+}
+
+// WatchMissing checks every file against Telegram, 100 messages per request, at startup and
+// then every interval, so files deleted in Telegram show up as missing in the UI.
+func (c Controller) WatchMissing(interval time.Duration) {
+	for {
+		select {
+		case <-c.Ctx.Done():
+			return
+		case <-time.After(time.Minute): // let startup (Telegram login, upload resume) settle first
+		}
+		if n, err := c.checkAll(); err != nil {
+			log.Printf("missing-file check: %v", err)
+		} else if n > 0 {
+			log.Printf("missing-file check: %d file(s) no longer in Telegram", n)
+		}
+		select {
+		case <-c.Ctx.Done():
+			return
+		case <-time.After(interval - time.Minute):
+		}
+	}
+}
+
+func (c Controller) checkAll() (missing int, err error) {
+	rows, err := c.DB.Query(`SELECT id, msg_id FROM files ORDER BY id`)
+	if err != nil {
+		return 0, err
+	}
+	byMsg := map[int]int64{}
+	var msgs []int
+	for rows.Next() {
+		var id int64
+		var msg int
+		rows.Scan(&id, &msg)
+		byMsg[msg] = id
+		msgs = append(msgs, msg)
+	}
+	rows.Close()
+	for start := 0; start < len(msgs); start += 100 {
+		batch := msgs[start:min(start+100, len(msgs))]
+		present, err := c.TG.Present(c.Ctx, batch)
+		if err != nil {
+			return missing, err
+		}
+		state := map[int64]bool{}
+		for msg, ok := range present {
+			state[byMsg[msg]] = !ok
+			if !ok {
+				missing++
+			}
+		}
+		c.setMissing(state)
+	}
+	return missing, nil
 }
 
 // ThumbPath is where the cached preview of file id lives.
@@ -101,7 +211,7 @@ func (c Controller) Thumb(w http.ResponseWriter, r *http.Request, uid int64) {
 			return thumb.Make(rs, path)
 		}()
 		if err != nil {
-			utils.ServerErr(w, http.StatusBadGateway, err)
+			c.openFailed(w, f.ID, err)
 			return
 		}
 	}
@@ -193,11 +303,12 @@ func (c Controller) BulkDelete(w http.ResponseWriter, r *http.Request, uid int64
 	}
 
 	type victim struct {
-		id  int64
-		msg int
+		id      int64
+		msg     int
+		missing bool
 	}
 	var files []victim
-	rows, err = c.DB.Query(`SELECT id, msg_id FROM files WHERE user_id = $1 AND (id = ANY($2) OR folder_id = ANY($3))`,
+	rows, err = c.DB.Query(`SELECT id, msg_id, missing_at IS NOT NULL FROM files WHERE user_id = $1 AND (id = ANY($2) OR folder_id = ANY($3))`,
 		uid, req.Files, folders)
 	if err != nil {
 		utils.ServerErr(w, http.StatusInternalServerError, err)
@@ -205,18 +316,21 @@ func (c Controller) BulkDelete(w http.ResponseWriter, r *http.Request, uid int64
 	}
 	for rows.Next() {
 		var v victim
-		rows.Scan(&v.id, &v.msg)
+		rows.Scan(&v.id, &v.msg, &v.missing)
 		files = append(files, v)
 	}
 	rows.Close()
 
 	for start := 0; start < len(files); start += 100 {
 		batch := files[start:min(start+100, len(files))]
-		ids, msgs := make([]int64, len(batch)), make([]int, len(batch))
+		ids, msgs := make([]int64, len(batch)), make([]int, 0, len(batch))
 		for i, v := range batch {
-			ids[i], msgs[i] = v.id, v.msg
+			ids[i] = v.id
+			if !v.missing { // already gone from Telegram: only the record is left
+				msgs = append(msgs, v.msg)
+			}
 		}
-		if err := c.TG.Delete(r.Context(), msgs...); err != nil {
+		if err := c.deleteMessages(r.Context(), msgs); err != nil {
 			log.Printf("bulk delete: Telegram failed after %d of %d files: %v", start, len(files), err)
 			utils.WriteErr(w, http.StatusBadGateway, fmt.Sprintf("deleted %d of %d files, then Telegram failed; try again", start, len(files)))
 			return
@@ -333,7 +447,8 @@ func (c Controller) Delete(w http.ResponseWriter, r *http.Request, uid int64) {
 		return
 	}
 	// Telegram first: if it fails the row stays, so nothing is lost track of.
-	if err := c.TG.Delete(r.Context(), msgID); err != nil {
+	// A file already gone from Telegram only has its record left to remove.
+	if err := c.deleteMessages(r.Context(), deletable(f.Missing, msgID)); err != nil {
 		utils.ServerErr(w, http.StatusBadGateway, err)
 		return
 	}

@@ -122,6 +122,37 @@ func (c *Client) Upload(ctx context.Context, r io.Reader, name string, size int6
 // Open returns a seekable reader over the document in message msgID.
 // The message is fetched fresh each time so the file reference is never stale.
 // parallel is how many 1 MiB chunks to fetch ahead: 8 for streaming, 1 to read just the start.
+// ErrMissing: the message is gone from the storage channel (deleted in Telegram).
+var ErrMissing = errors.New("message no longer in the storage channel")
+
+// Present reports, for up to 100 message ids, which still hold a file in the channel.
+func (c *Client) Present(ctx context.Context, msgIDs []int) (map[int]bool, error) {
+	ids := make([]tg.InputMessageClass, len(msgIDs))
+	for i, id := range msgIDs {
+		ids[i] = &tg.InputMessageID{ID: id}
+	}
+	res, err := c.api.ChannelsGetMessages(ctx, &tg.ChannelsGetMessagesRequest{Channel: c.channel, ID: ids})
+	if err != nil {
+		return nil, err
+	}
+	cm, ok := res.(*tg.MessagesChannelMessages)
+	if !ok {
+		return nil, fmt.Errorf("get messages: unexpected %T", res)
+	}
+	out := make(map[int]bool, len(msgIDs))
+	for _, id := range msgIDs {
+		out[id] = false
+	}
+	for _, m := range cm.Messages {
+		if msg, ok := m.(*tg.Message); ok {
+			if md, ok := msg.Media.(*tg.MessageMediaDocument); ok && md.Document != nil {
+				out[msg.ID] = true
+			}
+		}
+	}
+	return out, nil
+}
+
 func (c *Client) Open(ctx context.Context, msgID int, parallel int) (io.ReadSeeker, error) {
 	res, err := c.api.ChannelsGetMessages(ctx, &tg.ChannelsGetMessagesRequest{
 		Channel: c.channel,
@@ -139,7 +170,7 @@ func (c *Client) Open(ctx context.Context, msgID int, parallel int) (io.ReadSeek
 		}
 	}
 	if doc == nil {
-		return nil, fmt.Errorf("message %d has no document (deleted from channel?)", msgID)
+		return nil, fmt.Errorf("message %d: %w", msgID, ErrMissing)
 	}
 	loc := &tg.InputDocumentFileLocation{ID: doc.ID, AccessHash: doc.AccessHash, FileReference: doc.FileReference}
 	return &chunkReader{size: doc.Size, parallel: parallel, fetch: func(off int64) ([]byte, error) {

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Images, Play } from 'lucide-react'
 import { api } from './api.js'
-import { PhotoSkeleton, Thumb, kind } from './ui.jsx'
+import { MissingBadge, PhotoSkeleton, Thumb, kind } from './ui.jsx'
 
 const PAGE = 120
 
@@ -80,8 +80,9 @@ export default function Photos({ version, onOpen, onUpload, onError }) {
           <ul className="photo-grid">
             {g.items.map(({ f, i }) => (
               <li key={f.id}>
-                <button className="tile" onClick={() => onOpen(files, i)} aria-label={f.name}>
+                <button className={`tile${f.missing ? ' missing' : ''}`} onClick={() => onOpen(files, i)} aria-label={f.name}>
                   <Thumb file={f} iconSize={32} />
+                  {f.missing && <span className="tile-warn"><MissingBadge compact /></span>}
                   {kind(f.mime) === 'video' && <span className="play" aria-hidden><Play size={16} fill="currentColor" /></span>}
                 </button>
               </li>

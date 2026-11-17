@@ -3,7 +3,7 @@
 // Ctrl/Cmd+click toggles one item, Shift+click selects a range, Delete removes, Esc clears.
 import { useEffect, useRef, useState } from 'react'
 import { EllipsisVertical, LayoutGrid, List, Play, Search, Trash2, Upload, X } from 'lucide-react'
-import { Crumbs, FolderIcon, GridSkeleton, KindIcon, ListSkeleton, Thumb, fmtDate, fmtSize, kind } from './ui.jsx'
+import { Crumbs, FolderIcon, GridSkeleton, KindIcon, ListSkeleton, MissingBadge, Thumb, fmtDate, fmtSize, kind } from './ui.jsx'
 
 const SORTS = {
   name: { label: 'Nama', cmp: (a, b) => a.name.localeCompare(b.name, 'id', { numeric: true, sensitivity: 'base' }) },
@@ -154,7 +154,7 @@ export default function Drive({ data, query, view, sort, onView, onSort, onGo, o
             ))}
             {files.map(f => (
               <tr key={`f${f.id}`} {...item('file', f)}>
-                <td><button className="name" onClick={open('file', f)}><KindIcon mime={f.mime} /> <span>{f.name}</span></button></td>
+                <td><button className={`name${f.missing ? ' missing' : ''}`} onClick={open('file', f)}><KindIcon mime={f.mime} /> <span>{f.name}</span>{f.missing && <MissingBadge />}</button></td>
                 <td className="hide-sm muted">{fmtDate(f.created_at)}</td>
                 <td className="num hide-xs muted">{fmtSize(f.size)}</td>
                 <td className="act">{more('file', f)}</td>
@@ -185,7 +185,8 @@ export default function Drive({ data, query, view, sort, onView, onSort, onGo, o
                   <li key={f.id} {...item('file', f)} className={`file-card${sel.has(`file:${f.id}`) ? ' selected' : ''}`}>
                     <button className="card-open" onClick={open('file', f)} aria-label={`Buka ${f.name}`}>
                       <Thumb file={f} />
-                      {kind(f.mime) === 'video' && <span className="badge"><Play size={14} aria-hidden /> Video</span>}
+                      {f.missing ? <span className="badge warn"><MissingBadge /></span>
+                        : kind(f.mime) === 'video' && <span className="badge"><Play size={14} aria-hidden /> Video</span>}
                     </button>
                     <div className="card-foot">
                       <KindIcon mime={f.mime} size={18} />

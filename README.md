@@ -185,7 +185,8 @@ Authentication uses the `token` cookie set by login, or `Authorization: Bearer <
 | GET | `/api/search?q=` | | Folders and files whose name contains `q` |
 | GET | `/api/usage` | | Number of files and total bytes stored |
 | PATCH | `/api/files/{id}` | `{"name"?, "folder_id"?}` | Rename and/or move |
-| DELETE | `/api/files/{id}` | | Also deletes the message in the channel |
+| DELETE | `/api/files/{id}` | | Also deletes the message in the channel (skipped when it is already gone) |
+| POST | `/api/files/{id}/check` | | Asks Telegram whether the file's message still exists: `{missing}` |
 | POST | `/api/delete` | `{"files":[ids],"folders":[ids]}` | Bulk delete. Folders go with everything inside them; Telegram messages are deleted first, 100 per call |
 
 ## Contributing
@@ -205,6 +206,10 @@ CI runs the same checks on every push and pull request. Keep changes small and f
 ## License
 
 [MIT](LICENSE)
+
+## Files deleted in Telegram
+
+If a file's message is deleted in the channel itself, the drive keeps its record and marks it **Hilang di Telegram**. The server notices when the file is opened (the API answers `410 Gone`) and by checking every file against Telegram at startup and every 6 hours, 100 messages per request. Opening a missing file explains what happened and offers **Hapus dari aplikasi**, which removes only the record. Telegram has no trash for channel messages, so the content itself cannot be recovered by the drive.
 
 ## Known limits
 

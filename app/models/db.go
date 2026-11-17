@@ -64,6 +64,8 @@ CREATE TABLE IF NOT EXISTS uploads (
 );
 -- Telegram account linked for "Log in with Telegram" (added later, hence ALTER).
 ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_id bigint UNIQUE;
+-- Set when the file's message is found deleted in Telegram (unix time); the UI offers to remove the record.
+ALTER TABLE files ADD COLUMN IF NOT EXISTS missing_at bigint;
 `
 
 // Open connects to PostgreSQL (DATABASE_URL, e.g. postgres://user:pass@host:5432/db?sslmode=require)

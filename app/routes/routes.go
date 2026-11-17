@@ -59,6 +59,7 @@ func New(a *app.App) http.Handler {
 	mux.HandleFunc("GET /api/files/{id}", secure(fileC.Download)) // also serves HEAD
 	mux.HandleFunc("GET /api/files/{id}/thumb", secure(fileC.Thumb))
 	mux.HandleFunc("PUT /api/files/{id}/thumb", secure(fileC.PutThumb))
+	mux.HandleFunc("POST /api/files/{id}/check", secure(fileC.Check)) // still in Telegram?
 	mux.HandleFunc("GET /api/media", secure(fileC.Media))
 	mux.HandleFunc("GET /api/usage", secure(fileC.Usage))
 	mux.HandleFunc("PATCH /api/files/{id}", secure(fileC.Update))

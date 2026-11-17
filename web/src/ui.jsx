@@ -2,7 +2,7 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   ChevronDown, ChevronRight, ChevronUp, CircleAlert, CircleCheck, Eye, EyeOff, File as FileIcon, FileArchive,
-  FileAudio, FileImage, FileText, FileVideo, Folder, X,
+  FileAudio, FileImage, FileText, FileVideo, Folder, TriangleAlert, X,
 } from 'lucide-react'
 import { api, fileURL, thumbURL } from './api.js'
 import { makeVideoThumb } from './videoThumb.js'
@@ -313,5 +313,14 @@ export function PhotoSkeleton({ tiles = 18, title = true }) {
         {Array.from({ length: tiles }, (_, i) => <li key={i}><div className="tile sk" /></li>)}
       </ul>
     </div>
+  )
+}
+
+// Shown on files whose message was deleted in Telegram: only the record is left.
+export function MissingBadge({ compact }) {
+  return (
+    <span className="missing-badge" title="File ini sudah tidak ada di Telegram">
+      <TriangleAlert size={14} aria-hidden />{compact ? <span className="sr">Hilang di Telegram</span> : ' Hilang di Telegram'}
+    </span>
   )
 }

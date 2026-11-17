@@ -20,6 +20,7 @@
   --color-danger: oklch(53% 0.19 27);
   --color-ok: oklch(56% 0.13 155);
   --color-sk-shine: oklch(97% 0.006 245); /* skeleton shimmer highlight */
+  --color-warn: oklch(55% 0.14 65); /* file missing in Telegram */
   --color-telegram: oklch(62% 0.13 237); /* Telegram brand blue, for its login button only */
   --color-telegram-ink: oklch(99% 0 0);
   --color-telegram-phase: oklch(62% 0.12 222);
@@ -73,6 +74,7 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --color-sk-shine: oklch(30% 0.012 245);
+    --color-warn: oklch(78% 0.14 75);
     --color-paper: oklch(21% 0.012 245);
     --color-paper-2: oklch(16.5% 0.01 245);
     --color-paper-3: oklch(27% 0.014 245);
@@ -294,6 +296,21 @@ button.name span { overflow: hidden; text-overflow: ellipsis; white-space: nowra
 }
 
 .thumb { display: block; object-fit: cover; background: var(--color-paper-3); }
+
+/* ---- files deleted in Telegram: the record stays, marked and dimmed ---- */
+.missing-badge { display: inline-flex; align-items: center; gap: 4px; flex: none; color: var(--color-warn); font-size: var(--text-xs); font-weight: 600; }
+button.name.missing > span:not(.missing-badge) { color: var(--color-ink-2); text-decoration: line-through; text-decoration-color: var(--color-warn); }
+.badge.warn { background: var(--color-paper); }
+.tile.missing .thumb, .tile.missing .thumb-fallback { opacity: 0.35; }
+.tile-warn { position: absolute; inset: 0; display: grid; place-items: center; }
+.tile-warn .missing-badge svg { width: 28px; height: 28px; }
+.lb-missing {
+  display: grid; justify-items: center; gap: var(--space-xs); max-width: 420px; padding: var(--space-lg);
+  text-align: center; color: var(--color-stage-ink);
+}
+.lb-missing svg { color: var(--color-warn); }
+.lb-missing h2 { font-size: var(--text-xl); font-weight: 600; }
+.lb-missing p { margin: 0 0 var(--space-xs); opacity: 0.8; }
 
 /* ---- skeleton loading: one slow shimmer sweeping across every placeholder ---- */
 .sk {

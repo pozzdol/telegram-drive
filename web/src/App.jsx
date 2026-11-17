@@ -156,12 +156,32 @@ export default function App() {
     await api(`/api/${target.type}s/${target.item.id}`, { method: 'PATCH', body })
     refresh()
   }
+  // A file deleted in Telegram: explain, and offer to remove the leftover record.
+  const showMissing = async f => {
+    const ok = await askUser({
+      title: 'File ini sudah tidak ada di Telegram',
+      message: `“${f.name}” terhapus dari channel penyimpanan Telegram, jadi isinya tidak bisa dibuka atau didownload lagi. Yang tersisa hanya catatannya di aplikasi.`,
+      confirm: 'Hapus dari aplikasi',
+      danger: true,
+    })
+    if (!ok) return false
+    try { await api(`/api/files/${f.id}`, { method: 'DELETE' }); return true } catch (e) { setError(e.message); return false } finally { refresh() }
+  }
+  // Downloads leave the page, so check first: a deleted file would otherwise show a bare error page.
+  const download = async f => {
+    if (f.missing) return showMissing(f)
+    try {
+      if ((await api(`/api/files/${f.id}/check`, { method: 'POST' })).missing) { refresh(); return showMissing(f) }
+    } catch { /* Telegram unreachable: try the download anyway */ }
+    location.assign(fileURL(f.id))
+  }
   const openFile = (f, siblings) => {
+    if (f.missing) return showMissing(f)
     if (isViewable(f)) {
       const items = siblings.filter(isViewable)
       setLightbox({ items, start: items.findIndex(x => x.id === f.id) })
     } else if (kind(f.mime) === 'doc') window.open(fileURL(f.id, true), '_blank', 'noopener')
-    else location.assign(fileURL(f.id))
+    else download(f)
   }
   const deleteFromLightbox = async f => {
     if (await remove('file', f)) setLightbox(lb => ({ ...lb, items: lb.items.filter(x => x.id !== f.id) }))
@@ -221,13 +241,15 @@ export default function App() {
       type === 'folder'
         ? { label: 'Buka', icon: FolderOpen, onSelect: () => nav({ folder: it.id }) }
         : { label: 'Buka', icon: FolderOpen, onSelect: () => openFile(it, data?.files || [it]) },
-      ...(type === 'file' ? [{ label: 'Download', icon: Download, onSelect: () => location.assign(fileURL(it.id)) }] : []),
+      ...(type === 'file' && !it.missing ? [{ label: 'Download', icon: Download, onSelect: () => download(it) }] : []),
       ...(route.q ? [{ label: 'Tampilkan lokasi', icon: FolderInput, onSelect: () => nav({ folder: type === 'file' ? it.folder_id || 0 : it.parent_id || 0 }) }] : []),
       '-',
       { label: 'Ganti nama', icon: Pencil, onSelect: () => rename(type, it) },
       { label: 'Pindahkan', icon: FolderInput, onSelect: () => setMoving({ type, item: it }) },
       '-',
-      { label: 'Hapus', icon: Trash2, danger: true, onSelect: () => remove(type, it) },
+      it.missing
+        ? { label: 'Hapus dari aplikasi', icon: Trash2, danger: true, onSelect: () => showMissing(it) }
+        : { label: 'Hapus', icon: Trash2, danger: true, onSelect: () => remove(type, it) },
     ],
   })
   const newMenu = e => {
@@ -359,7 +381,7 @@ export default function App() {
         {showUsers ? (
           <Users me={me} version={version} onMenu={(at, items) => setMenu({ at, items })} onAsk={askUser} onError={setError} />
         ) : route.view === 'photos' ? (
-          <Photos version={version} onOpen={(items, start) => setLightbox({ items, start })} onUpload={() => inputRef.current.click()} onError={setError} />
+          <Photos version={version} onOpen={(items, start) => items[start].missing ? showMissing(items[start]) : setLightbox({ items, start })} onUpload={() => inputRef.current.click()} onError={setError} />
         ) : (
           <Drive
             data={data}
@@ -390,7 +412,7 @@ export default function App() {
       {ask && <AskDialog ask={ask} onDone={v => { setAsk(null); ask.resolve(v) }} />}
       {moving && <MoveDialog target={moving} onMove={to => move(moving, to)} onClose={() => setMoving(null)} />}
       {pwOpen && <PasswordDialog onClose={() => setPwOpen(false)} />}
-      {lightbox && <Lightbox items={lightbox.items} start={lightbox.start} onClose={() => setLightbox(null)} onDelete={deleteFromLightbox} />}
+      {lightbox && <Lightbox items={lightbox.items} start={lightbox.start} onClose={() => setLightbox(null)} onDelete={deleteFromLightbox} onMissing={refresh} />}
     </div>
   )
 }
