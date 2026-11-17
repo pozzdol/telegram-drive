@@ -3,7 +3,7 @@
 // Ctrl/Cmd+click toggles one item, Shift+click selects a range, Delete removes, Esc clears.
 import { useEffect, useRef, useState } from 'react'
 import { EllipsisVertical, LayoutGrid, List, Play, Search, Trash2, Upload, X } from 'lucide-react'
-import { Crumbs, FolderIcon, KindIcon, Thumb, fmtDate, fmtSize, kind } from './ui.jsx'
+import { Crumbs, FolderIcon, GridSkeleton, KindIcon, ListSkeleton, Thumb, fmtDate, fmtSize, kind } from './ui.jsx'
 
 const SORTS = {
   name: { label: 'Nama', cmp: (a, b) => a.name.localeCompare(b.name, 'id', { numeric: true, sensitivity: 'base' }) },
@@ -123,7 +123,7 @@ export default function Drive({ data, query, view, sort, onView, onSort, onGo, o
         )}
       </div>
 
-      {!data ? <p className="muted pad">Memuat…</p> : empty ? (
+      {!data ? (view === 'list' ? <ListSkeleton /> : <GridSkeleton />) : empty ? (
         query ? (
           <div className="empty">
             <Search size={40} aria-hidden />

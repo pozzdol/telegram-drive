@@ -10,7 +10,7 @@ import Drive from './Drive.jsx'
 import Photos from './Photos.jsx'
 import Lightbox from './Lightbox.jsx'
 import Users, { Avatar, PasswordDialog } from './Users.jsx'
-import { AskDialog, Menu, MoveDialog, UploadPanel, fmtSize, isViewable, kind } from './ui.jsx'
+import { AskDialog, ListSkeleton, Menu, MoveDialog, Sk, UploadPanel, fmtSize, isViewable, kind } from './ui.jsx'
 
 // ---- URL state: ?view=photos | ?view=users | ?folder=12 | ?q=text ----
 const VIEWS = ['photos', 'users']
@@ -286,7 +286,19 @@ export default function App() {
       </main>
     )
   }
-  if (authed === null) return <p className="boot muted">Memuat…</p>
+  if (authed === null) {
+    return (
+      <div className="shell" aria-busy="true" aria-label="Memuat">
+        <aside className="sidebar">
+          <div className="brand"><HardDrive size={24} aria-hidden /> Telegram Drive</div>
+          <Sk w={112} h={56} r={16} className="sk-new" />
+          {[120, 80].map((w, i) => <div key={i} className="sk-nav"><Sk w={20} h={20} r={4} /><Sk w={w} /></div>)}
+        </aside>
+        <header className="topbar"><Sk w="min(720px, 100%)" h={48} r={999} /></header>
+        <main className="main"><section className="panel"><div className="panel-head"><Sk w={140} h={22} /></div><ListSkeleton /></section></main>
+      </div>
+    )
+  }
   if (!authed) return <Login onDone={() => { setAuthed(true); refresh() }} />
 
   const here = route.view === 'photos' ? 'Foto' : data?.path?.at(-1)?.name || 'Drive saya'

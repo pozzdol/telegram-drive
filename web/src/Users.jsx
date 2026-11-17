@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { EllipsisVertical, KeyRound, Pencil, ShieldCheck, ShieldOff, Trash2, UserPlus } from 'lucide-react'
 import { api } from './api.js'
-import { fmtDate, fmtSize, useModal } from './ui.jsx'
+import { Sk, fmtDate, fmtSize, useModal } from './ui.jsx'
 
 const MIN_PW = 8
 
@@ -76,7 +76,21 @@ export default function Users({ me, version, onMenu, onAsk, onError }) {
       </div>
       <p className="muted pad-x">Setiap pengguna punya drive sendiri. Mereka tidak bisa melihat file satu sama lain.</p>
 
-      {!users ? <p className="muted pad">Memuat…</p> : (
+      {!users ? (
+        <table className="list users" aria-busy="true" aria-label="Memuat pengguna">
+          <tbody>
+            {['40%', '28%', '34%'].map((w, i) => (
+              <tr key={i} className="sk-row">
+                <td><div className="who"><Sk w={32} h={32} r="50%" /><Sk w={w} /></div></td>
+                <td className="num hide-xs"><Sk w={24} /></td>
+                <td className="num"><Sk w={56} /></td>
+                <td className="num hide-sm"><Sk w={80} /></td>
+                <td className="act" />
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
         <table className="list users">
           <thead>
             <tr><th>Nama</th><th className="num hide-xs">File</th><th className="num">Terpakai</th><th className="num hide-sm">Dibuat</th><th className="act"><span className="sr">Tindakan</span></th></tr>

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Images, Play } from 'lucide-react'
 import { api } from './api.js'
-import { Thumb, kind } from './ui.jsx'
+import { PhotoSkeleton, Thumb, kind } from './ui.jsx'
 
 const PAGE = 120
 
@@ -49,7 +49,7 @@ export default function Photos({ version, onOpen, onUpload, onError }) {
     return () => io.disconnect()
   }, [more, files]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!files) return <section className="panel photos"><p className="muted pad">Memuat foto…</p></section>
+  if (!files) return <section className="panel photos"><PhotoSkeleton /><PhotoSkeleton tiles={9} /></section>
 
   if (!files.length) {
     return (
@@ -89,7 +89,7 @@ export default function Photos({ version, onOpen, onUpload, onError }) {
           </ul>
         </div>
       ))}
-      {more && <div ref={sentinel} className="muted pad">Memuat lagi…</div>}
+      {more && <div ref={sentinel}><PhotoSkeleton tiles={9} title={false} /></div>}
     </section>
   )
 }

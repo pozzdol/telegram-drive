@@ -19,6 +19,7 @@
   --color-focus: oklch(55% 0.15 228);
   --color-danger: oklch(53% 0.19 27);
   --color-ok: oklch(56% 0.13 155);
+  --color-sk-shine: oklch(97% 0.006 245); /* skeleton shimmer highlight */
   --color-telegram: oklch(62% 0.13 237); /* Telegram brand blue, for its login button only */
   --color-telegram-ink: oklch(99% 0 0);
   --color-telegram-phase: oklch(62% 0.12 222);
@@ -71,6 +72,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
+    --color-sk-shine: oklch(30% 0.012 245);
     --color-paper: oklch(21% 0.012 245);
     --color-paper-2: oklch(16.5% 0.01 245);
     --color-paper-3: oklch(27% 0.014 245);
@@ -292,6 +294,19 @@ button.name span { overflow: hidden; text-overflow: ellipsis; white-space: nowra
 }
 
 .thumb { display: block; object-fit: cover; background: var(--color-paper-3); }
+
+/* ---- skeleton loading: one slow shimmer sweeping across every placeholder ---- */
+.sk {
+  background: linear-gradient(100deg, var(--color-paper-3) 40%, var(--color-sk-shine) 50%, var(--color-paper-3) 60%) 0 0 / 200% 100%;
+  animation: sk-shimmer 1.4s linear infinite;
+}
+.sk-bar { display: block; flex: none; max-width: 100%; border-radius: var(--radius-sm); }
+@keyframes sk-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+.sk-row:hover { background: none !important; }
+.sk-name { display: flex; align-items: center; gap: var(--space-sm); min-height: 44px; }
+.picker-sk { display: flex; align-items: center; gap: var(--space-xs); height: 40px; padding: 0 var(--space-xs); }
+.sk-new { margin: var(--space-2xs) 0 var(--space-xs); }
+.sk-nav { display: flex; align-items: center; gap: var(--space-sm); height: 40px; padding: 0 var(--space-sm); }
 .thumb-fallback { display: grid; place-items: center; background: var(--color-paper-3); }
 
 .empty { display: grid; justify-items: center; gap: var(--space-2xs); padding: var(--space-xl) var(--space-md); text-align: center; color: var(--color-ink-2); }
@@ -506,4 +521,5 @@ dialog.sheet.form input[type="checkbox"] { width: 20px; height: 20px; accent-col
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
   .tile:hover .thumb { transform: none; }
+  .sk { animation: none; }
 }

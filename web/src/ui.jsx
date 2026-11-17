@@ -51,7 +51,9 @@ export function Thumb({ file, iconSize = 36 }) {
     else setFailed(true)
   }
   const src = thumbURL(file) + (retry ? '&r=1' : '')
-  return <img className="thumb" src={src} alt="" loading="lazy" decoding="async" onError={onError} />
+  // Shimmers until the picture arrives (thumbnails may come from Telegram on first view).
+  return <img className="thumb sk" src={src} alt="" loading="lazy" decoding="async" onError={onError}
+    onLoad={e => e.currentTarget.classList.remove('sk')} />
 }
 
 // Opens a native <dialog> as modal: Esc, focus trap and backdrop come for free.
@@ -193,7 +195,8 @@ export function MoveDialog({ target, onMove, onClose }) {
       <h2>Pindahkan “{target.item.name}”</h2>
       <Crumbs path={d?.path || []} onGo={setAt} small />
       <ul className="picker">
-        {!d ? <li className="muted">Memuat…</li> : folders.length ? folders.map(f => (
+        {!d ? [70, 45, 60].map((w, i) => <li key={i} className="picker-sk"><Sk w={18} h={18} r={4} /><Sk w={`${w}%`} /></li>)
+          : folders.length ? folders.map(f => (
           <li key={f.id}><button onClick={() => setAt(f.id)}><FolderIcon size={18} /> {f.name}</button></li>
         )) : <li className="muted">Tidak ada subfolder di sini</li>}
       </ul>
@@ -248,5 +251,67 @@ export function UploadPanel({ uploads, onClear }) {
         </ul>
       )}
     </aside>
+  )
+}
+
+// ---- skeletons: grey shapes in the layout of what is loading, so nothing jumps when it arrives ----
+
+// Fixed widths: random ones would change on every render and look like flicker.
+const WIDTHS = ['62%', '44%', '71%', '38%', '55%', '66%', '48%', '58%', '35%', '69%']
+
+export const Sk = ({ w = '100%', h = 12, r, className = '' }) => (
+  <span className={`sk sk-bar ${className}`} style={{ width: w, height: h, borderRadius: r }} aria-hidden />
+)
+
+// Same columns as the file list, so the header and widths stay put when rows arrive.
+export function ListSkeleton({ rows = 8 }) {
+  return (
+    <table className="list" aria-busy="true" aria-label="Memuat isi folder">
+      <thead>
+        <tr><th>Nama</th><th className="hide-sm">Ditambahkan</th><th className="num hide-xs">Ukuran</th><th><span className="sr">Tindakan</span></th></tr>
+      </thead>
+      <tbody>
+        {Array.from({ length: rows }, (_, i) => (
+          <tr key={i} className="sk-row">
+            <td><div className="sk-name"><Sk w={20} h={20} r={4} /><Sk w={WIDTHS[i % WIDTHS.length]} /></div></td>
+            <td className="hide-sm"><Sk w={80} /></td>
+            <td className="num hide-xs"><Sk w={48} /></td>
+            <td className="act" />
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
+export function GridSkeleton() {
+  return (
+    <div className="grid-view" aria-busy="true" aria-label="Memuat isi folder">
+      <h2 className="group-title"><Sk w={64} h={14} /></h2>
+      <ul className="folder-grid">
+        {[0, 1, 2].map(i => <li key={i} className="folder-chip"><Sk w={20} h={20} r={4} /><Sk w={WIDTHS[i]} /></li>)}
+      </ul>
+      <h2 className="group-title"><Sk w={40} h={14} /></h2>
+      <ul className="file-grid">
+        {Array.from({ length: 8 }, (_, i) => (
+          <li key={i} className="file-card">
+            <div className="card-open sk" />
+            <div className="card-foot"><Sk w={18} h={18} r={4} /><Sk w={WIDTHS[i]} /></div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+// A day heading and a block of square tiles, like the photo timeline.
+export function PhotoSkeleton({ tiles = 18, title = true }) {
+  return (
+    <div className="day" aria-busy="true" aria-label="Memuat foto">
+      {title && <h2 className="day-title"><Sk w={180} h={22} /></h2>}
+      <ul className="photo-grid">
+        {Array.from({ length: tiles }, (_, i) => <li key={i}><div className="tile sk" /></li>)}
+      </ul>
+    </div>
   )
 }
