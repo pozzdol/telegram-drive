@@ -36,7 +36,7 @@ export default function Users({ me, version, onMenu, onAsk, onError }) {
   }
   const reset = async u => {
     const password = await onAsk({
-      title: `Password baru untuk ${u.username}`, input: true, value: '', confirm: 'Simpan',
+      title: `Password baru untuk ${u.username}`, input: true, password: true, value: '', confirm: 'Simpan',
       message: `Minimal ${MIN_PW} karakter. ${u.username} akan keluar dari semua perangkat dan masuk lagi dengan password ini.`,
     })
     if (password == null) return
@@ -138,7 +138,7 @@ function AddUserDialog({ onClose }) {
       <form onSubmit={submit}>
         <h2>Tambah pengguna</h2>
         <label>Username<input name="username" required minLength={3} maxLength={64} autoComplete="off" autoFocus /></label>
-        <label>Password<input name="password" required minLength={MIN_PW} autoComplete="new-password" /></label>
+        <label>Password<input name="password" type="password" required minLength={MIN_PW} autoComplete="new-password" /></label>
         <p className="muted small">Minimal {MIN_PW} karakter. Berikan ke anggota keluarga; mereka bisa menggantinya sendiri nanti.</p>
         <label className="check"><input type="checkbox" name="admin" /> Jadikan admin (bisa mengatur pengguna)</label>
         {err && <p className="err" role="alert">{err}</p>}

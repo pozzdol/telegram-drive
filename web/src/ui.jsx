@@ -1,7 +1,7 @@
 // Shared building blocks: formatting, file icons, thumbnails, menus, dialogs, upload panel.
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
-  ChevronDown, ChevronRight, ChevronUp, CircleAlert, CircleCheck, File as FileIcon, FileArchive,
+  ChevronDown, ChevronRight, ChevronUp, CircleAlert, CircleCheck, Eye, EyeOff, File as FileIcon, FileArchive,
   FileAudio, FileImage, FileText, FileVideo, Folder, X,
 } from 'lucide-react'
 import { api, fileURL, thumbURL } from './api.js'
@@ -105,13 +105,15 @@ export function Menu({ at, items, onClose }) {
   )
 }
 
-// Prompt or confirm. ask: { title, message?, input?, value?, selectBase?, confirm, danger? }.
+// Prompt or confirm. ask: { title, message?, input?, password?, value?, selectBase?, confirm, danger? }.
+// password: the value is hidden, with an eye button to show it.
 // onDone gets the trimmed text (input), true (confirm) or null (cancelled).
 export function AskDialog({ ask, onDone }) {
   const ref = useModal()
   const result = useRef(null)
   const input = useRef(null)
   const [value, setValue] = useState(ask.value ?? '')
+  const [shown, setShown] = useState(false)
 
   useEffect(() => {
     if (!ask.input) return
@@ -130,8 +132,18 @@ export function AskDialog({ ask, onDone }) {
       <form onSubmit={submit}>
         <h2>{ask.title}</h2>
         {ask.message && <p className="muted">{ask.message}</p>}
-        {ask.input && (
+        {ask.input && !ask.password && (
           <input ref={input} autoFocus value={value} onChange={e => setValue(e.target.value)} aria-label={ask.title} maxLength={255} />
+        )}
+        {ask.input && ask.password && (
+          <div className="pw-field">
+            <input ref={input} autoFocus value={value} onChange={e => setValue(e.target.value)} aria-label={ask.title}
+              type={shown ? 'text' : 'password'} autoComplete="new-password" maxLength={255} />
+            <button type="button" className="icon-btn" onClick={() => setShown(s => !s)}
+              aria-label={shown ? 'Sembunyikan password' : 'Tampilkan password'} aria-pressed={shown}>
+              {shown ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          </div>
         )}
         <footer>
           <button type="button" className="btn ghost" onClick={() => ref.current.close()}>Batal</button>
