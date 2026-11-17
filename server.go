@@ -44,7 +44,7 @@ func main() {
 		upload.Controller{App: a}.Resume()
 		go file.Controller{App: a}.BackfillTakenAt()
 
-		srv := &http.Server{Addr: cfg.Host + ":" + cfg.Port, Handler: routes.New(a), ReadHeaderTimeout: 10 * time.Second}
+		srv := &http.Server{Addr: cfg.Host + ":" + cfg.Port, Handler: routes.New(a), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}
 		go func() {
 			<-ctx.Done()
 			srv.Shutdown(context.Background())

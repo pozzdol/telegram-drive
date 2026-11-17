@@ -31,7 +31,7 @@ func (c Config) ThumbDir() string    { return filepath.Join(c.DataDir, "thumbs")
 func Load() (Config, error) {
 	loadDotEnv(".env")
 	c := Config{
-		Host:            os.Getenv("HOST"), // 127.0.0.1 behind a tunnel or reverse proxy
+		Host:            env("HOST", "127.0.0.1"), // 0.0.0.0 only when nothing on this machine proxies it
 		Port:            env("PORT", "8080"),
 		DataDir:         env("DATA_DIR", "data"),
 		AllowedOrigin:   os.Getenv("ALLOWED_ORIGIN"),

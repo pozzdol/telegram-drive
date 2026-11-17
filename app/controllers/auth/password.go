@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -64,6 +65,9 @@ func SetPassword(db *sql.DB, uid int64, pw string) error {
 }
 
 const sessionTTL = 30 * 24 * time.Hour
+
+// SessionHash is the stored form of the session token this request carries.
+func SessionHash(r *http.Request) string { return hashToken(tokenFrom(r)) }
 
 func hashToken(t string) string {
 	s := sha256.Sum256([]byte(t))

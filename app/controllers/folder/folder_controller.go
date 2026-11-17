@@ -35,7 +35,7 @@ func (c Controller) List(w http.ResponseWriter, r *http.Request, uid int64) {
 			UNION ALL SELECT f.id, f.parent_id, f.name, depth + 1 FROM folders f JOIN up ON f.id = up.parent_id
 		) SELECT id, name FROM up ORDER BY depth DESC`, ref)
 	if err != nil {
-		utils.WriteErr(w, http.StatusInternalServerError, err.Error())
+		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	for rows.Next() {
@@ -47,12 +47,12 @@ func (c Controller) List(w http.ResponseWriter, r *http.Request, uid int64) {
 
 	if out.Folders, err = models.QueryFolders(c.DB, `SELECT id, parent_id, name, created_at FROM folders
 		WHERE user_id = $1 AND parent_id IS NOT DISTINCT FROM $2 ORDER BY lower(name), name`, uid, ref); err != nil {
-		utils.WriteErr(w, http.StatusInternalServerError, err.Error())
+		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	if out.Files, err = models.QueryFiles(c.DB, `SELECT `+models.FileColumns+` FROM files
 		WHERE user_id = $1 AND folder_id IS NOT DISTINCT FROM $2 ORDER BY lower(name), name`, uid, ref); err != nil {
-		utils.WriteErr(w, http.StatusInternalServerError, err.Error())
+		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	utils.WriteJSON(w, http.StatusOK, out)
@@ -73,12 +73,12 @@ func (c Controller) Search(w http.ResponseWriter, r *http.Request, uid int64) {
 	var err error
 	if out.Folders, err = models.QueryFolders(c.DB, `SELECT id, parent_id, name, created_at FROM folders
 		WHERE user_id = $1 AND name ILIKE $2 ESCAPE '\' ORDER BY lower(name), name LIMIT 50`, uid, like); err != nil {
-		utils.WriteErr(w, http.StatusInternalServerError, err.Error())
+		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	if out.Files, err = models.QueryFiles(c.DB, `SELECT `+models.FileColumns+` FROM files
 		WHERE user_id = $1 AND name ILIKE $2 ESCAPE '\' ORDER BY created_at DESC LIMIT 200`, uid, like); err != nil {
-		utils.WriteErr(w, http.StatusInternalServerError, err.Error())
+		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	utils.WriteJSON(w, http.StatusOK, out)
@@ -104,7 +104,7 @@ func (c Controller) Create(w http.ResponseWriter, r *http.Request, uid int64) {
 	}
 	var id int64
 	if err := c.DB.QueryRow(`INSERT INTO folders (user_id, parent_id, name) VALUES ($1, $2, $3) RETURNING id`, uid, ref, name).Scan(&id); err != nil {
-		utils.WriteErr(w, http.StatusInternalServerError, err.Error())
+		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	utils.WriteJSON(w, http.StatusCreated, map[string]any{"id": id, "parent_id": ref, "name": name})
@@ -167,7 +167,7 @@ func (c Controller) Delete(w http.ResponseWriter, r *http.Request, uid int64) {
 			utils.WriteErr(w, http.StatusConflict, "folder not empty")
 			return
 		}
-		utils.WriteErr(w, http.StatusInternalServerError, err.Error())
+		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	if n, _ := res.RowsAffected(); n == 0 {

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"telegram-drive/app"
@@ -100,7 +101,7 @@ func (c Controller) Register(w http.ResponseWriter, r *http.Request) {
 	}
 	hash, err := hashPassword(req.Password)
 	if err != nil {
-		utils.WriteErr(w, http.StatusInternalServerError, err.Error())
+		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	// Only the very first user registers (and becomes admin); everyone else is added from the admin page.
@@ -112,7 +113,7 @@ func (c Controller) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		utils.WriteErr(w, http.StatusInternalServerError, err.Error())
+		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	utils.WriteJSON(w, http.StatusCreated, map[string]any{"id": id, "username": req.Username})
@@ -123,16 +124,25 @@ func (c Controller) Login(w http.ResponseWriter, r *http.Request) {
 	if !utils.ReadJSON(w, r, &req) {
 		return
 	}
+	name := strings.TrimSpace(req.Username)
+	ip := clientIP(r)
+	if wait := logins.blocked(ip, name); wait > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+		utils.WriteErr(w, http.StatusTooManyRequests, "too many failed logins, try again later")
+		return
+	}
 	var uid int64
-	var hash string
-	err := c.DB.QueryRow(`SELECT id, password_hash FROM users WHERE username = $1`, strings.TrimSpace(req.Username)).Scan(&uid, &hash)
-	if err != nil || !checkPassword(hash, req.Password) {
+	hash := dummyHash // unknown users cost the same PBKDF2 work, so timing does not reveal usernames
+	err := c.DB.QueryRow(`SELECT id, password_hash FROM users WHERE username = $1`, name).Scan(&uid, &hash)
+	if !checkPassword(hash, req.Password) || err != nil {
+		logins.fail(ip, name)
 		utils.WriteErr(w, http.StatusUnauthorized, "invalid username or password")
 		return
 	}
+	logins.reset(ip, name)
 	tok, err := newSession(c.DB, uid)
 	if err != nil {
-		utils.WriteErr(w, http.StatusInternalServerError, err.Error())
+		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	// Cookie lets the browser UI use <img>/<video src> directly; API clients use the Bearer token.

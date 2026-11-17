@@ -65,8 +65,16 @@ func New(a *app.App) http.Handler {
 }
 
 // cors lets the UI on another subdomain (Cloudflare Pages, Vercel) call the API with its cookie.
+// It also refuses state-changing requests that a browser sent from any other origin (CSRF),
+// including sibling subdomains that SameSite=Strict still counts as same-site.
+// Requests without an Origin header (curl, API clients) are not browser cross-site requests.
 func cors(origin string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if o := r.Header.Get("Origin"); o != "" && origin != "" && o != origin &&
+			r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+			utils.WriteErr(w, http.StatusForbidden, "origin not allowed")
+			return
+		}
 		if origin != "" && r.Header.Get("Origin") == origin {
 			h := w.Header()
 			h.Set("Access-Control-Allow-Origin", origin)

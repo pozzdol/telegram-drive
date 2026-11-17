@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image/jpeg"
 	"io"
+	"log"
 	"mime"
 	"net/http"
 	"os"
@@ -45,7 +46,7 @@ func (c Controller) Download(w http.ResponseWriter, r *http.Request, uid int64) 
 	}
 	rs, err := c.TG.Open(r.Context(), msgID, 8)
 	if err != nil {
-		utils.WriteErr(w, http.StatusBadGateway, err.Error())
+		utils.ServerErr(w, http.StatusBadGateway, err)
 		return
 	}
 	disp := "attachment"
@@ -54,6 +55,8 @@ func (c Controller) Download(w http.ResponseWriter, r *http.Request, uid int64) 
 	}
 	w.Header().Set("Content-Type", f.Mime)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	// Even if a type slips past inlineSafe, a file opened from the API origin cannot run scripts.
+	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'")
 	w.Header().Set("Content-Disposition", mime.FormatMediaType(disp, map[string]string{"filename": f.Name}))
 	http.ServeContent(w, r, f.Name, time.Unix(f.CreatedAt, 0), rs)
 }
@@ -98,7 +101,7 @@ func (c Controller) Thumb(w http.ResponseWriter, r *http.Request, uid int64) {
 			return thumb.Make(rs, path)
 		}()
 		if err != nil {
-			utils.WriteErr(w, http.StatusBadGateway, "preview failed: "+err.Error())
+			utils.ServerErr(w, http.StatusBadGateway, err)
 			return
 		}
 	}
@@ -137,11 +140,11 @@ func (c Controller) PutThumb(w http.ResponseWriter, r *http.Request, uid int64) 
 	path := ThumbPath(c.ThumbDir, f.ID)
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, body, 0o644); err != nil {
-		utils.WriteErr(w, http.StatusInternalServerError, err.Error())
+		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	if err := os.Rename(tmp, path); err != nil {
-		utils.WriteErr(w, http.StatusInternalServerError, err.Error())
+		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -176,7 +179,7 @@ func (c Controller) BulkDelete(w http.ResponseWriter, r *http.Request, uid int64
 			UNION SELECT f.id FROM folders f JOIN t ON f.parent_id = t.id
 		) SELECT id FROM t`, uid, req.Folders)
 	if err != nil {
-		utils.WriteErr(w, http.StatusInternalServerError, err.Error())
+		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	for rows.Next() {
@@ -197,7 +200,7 @@ func (c Controller) BulkDelete(w http.ResponseWriter, r *http.Request, uid int64
 	rows, err = c.DB.Query(`SELECT id, msg_id FROM files WHERE user_id = $1 AND (id = ANY($2) OR folder_id = ANY($3))`,
 		uid, req.Files, folders)
 	if err != nil {
-		utils.WriteErr(w, http.StatusInternalServerError, err.Error())
+		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	for rows.Next() {
@@ -214,7 +217,8 @@ func (c Controller) BulkDelete(w http.ResponseWriter, r *http.Request, uid int64
 			ids[i], msgs[i] = v.id, v.msg
 		}
 		if err := c.TG.Delete(r.Context(), msgs...); err != nil {
-			utils.WriteErr(w, http.StatusBadGateway, fmt.Sprintf("deleted %d of %d files, then Telegram failed: %v", start, len(files), err))
+			log.Printf("bulk delete: Telegram failed after %d of %d files: %v", start, len(files), err)
+			utils.WriteErr(w, http.StatusBadGateway, fmt.Sprintf("deleted %d of %d files, then Telegram failed; try again", start, len(files)))
 			return
 		}
 		c.DB.Exec(`DELETE FROM files WHERE id = ANY($1)`, ids)
@@ -224,7 +228,7 @@ func (c Controller) BulkDelete(w http.ResponseWriter, r *http.Request, uid int64
 	}
 	// One statement: parent and child folders go together, so the parent_id check passes.
 	if _, err := c.DB.Exec(`DELETE FROM folders WHERE user_id = $1 AND id = ANY($2)`, uid, folders); err != nil {
-		utils.WriteErr(w, http.StatusInternalServerError, err.Error())
+		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	utils.WriteJSON(w, http.StatusOK, map[string]int{"files": len(files), "folders": len(folders)})
@@ -241,7 +245,7 @@ func (c Controller) Media(w http.ResponseWriter, r *http.Request, uid int64) {
 		WHERE user_id = $1 AND (mime LIKE 'image/%' OR mime LIKE 'video/%') AND mime <> 'image/svg+xml'
 		ORDER BY coalesce(nullif(taken_at, 0), created_at) DESC, id DESC LIMIT $2 OFFSET $3`, uid, limit, max(offset, 0))
 	if err != nil {
-		utils.WriteErr(w, http.StatusInternalServerError, err.Error())
+		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	utils.WriteJSON(w, http.StatusOK, map[string]any{"files": files, "has_more": len(files) == limit})
@@ -330,7 +334,7 @@ func (c Controller) Delete(w http.ResponseWriter, r *http.Request, uid int64) {
 	}
 	// Telegram first: if it fails the row stays, so nothing is lost track of.
 	if err := c.TG.Delete(r.Context(), msgID); err != nil {
-		utils.WriteErr(w, http.StatusBadGateway, err.Error())
+		utils.ServerErr(w, http.StatusBadGateway, err)
 		return
 	}
 	c.DB.Exec(`DELETE FROM files WHERE id = $1`, f.ID)

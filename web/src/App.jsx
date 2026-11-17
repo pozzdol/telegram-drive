@@ -35,6 +35,7 @@ export default function App() {
   const [route, setRoute] = useState(readRoute)
   const [data, setData] = useState(null)
   const [usage, setUsage] = useState(null)
+  const [offline, setOffline] = useState(false)
   const [me, setMe] = useState(null) // { id, username, is_admin }
   const [pwOpen, setPwOpen] = useState(false)
   const [version, setVersion] = useState(0) // bump to reload lists after a change
@@ -78,8 +79,10 @@ export default function App() {
     api('/api/me').then(setMe, () => {})
   }, [authed])
   useEffect(() => {
-    api('/api/usage').then(u => { setUsage(u); setAuthed(true) }, e => {
+    api('/api/usage').then(u => { setUsage(u); setAuthed(true); setOffline(false) }, e => {
       if (e.status === 401) setAuthed(false)
+      // No HTTP status at all: the API could not be reached (offline, DNS, blocked).
+      else if (!e.status && authed === null) setOffline(true)
       else { setAuthed(true); setError(e.message) }
     })
   }, [version, authed])
@@ -245,6 +248,18 @@ export default function App() {
     return () => removeEventListener('beforeunload', f)
   }, [uploading])
 
+  if (offline) {
+    return (
+      <main className="login">
+        <div className="login-card" role="alert">
+          <HardDrive size={36} className="login-mark" aria-hidden />
+          <h1>Tidak bisa terhubung ke server</h1>
+          <p className="muted">Periksa koneksi internet. Kalau masih gagal, server drive mungkin sedang mati.</p>
+          <button className="btn primary wide" onClick={() => { setOffline(false); refresh() }}>Coba lagi</button>
+        </div>
+      </main>
+    )
+  }
   if (authed === null) return <p className="boot muted">Memuat…</p>
   if (!authed) return <Login onDone={() => { setAuthed(true); refresh() }} />
 

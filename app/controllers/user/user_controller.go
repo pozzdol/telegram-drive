@@ -28,7 +28,7 @@ func (c Controller) List(w http.ResponseWriter, r *http.Request, uid int64) {
 	rows, err := c.DB.Query(`SELECT u.id, u.username, u.is_admin, u.created_at, count(f.id), coalesce(sum(f.size), 0)::bigint
 		FROM users u LEFT JOIN files f ON f.user_id = u.id GROUP BY u.id ORDER BY u.id`)
 	if err != nil {
-		utils.WriteErr(w, http.StatusInternalServerError, err.Error())
+		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	defer rows.Close()
@@ -36,7 +36,7 @@ func (c Controller) List(w http.ResponseWriter, r *http.Request, uid int64) {
 	for rows.Next() {
 		var u userRow
 		if err := rows.Scan(&u.ID, &u.Username, &u.IsAdmin, &u.CreatedAt, &u.Files, &u.Bytes); err != nil {
-			utils.WriteErr(w, http.StatusInternalServerError, err.Error())
+			utils.ServerErr(w, http.StatusInternalServerError, err)
 			return
 		}
 		users = append(users, u)
@@ -57,7 +57,7 @@ func writeDBErr(w http.ResponseWriter, err error) {
 		utils.WriteErr(w, http.StatusConflict, "username already taken")
 		return
 	}
-	utils.WriteErr(w, http.StatusInternalServerError, err.Error())
+	utils.ServerErr(w, http.StatusInternalServerError, err)
 }
 
 func (c Controller) Create(w http.ResponseWriter, r *http.Request, uid int64) {
@@ -129,9 +129,8 @@ func (c Controller) Update(w http.ResponseWriter, r *http.Request, uid int64) {
 			utils.WriteErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		if id != uid {
-			c.DB.Exec(`DELETE FROM sessions WHERE user_id = $1`, id)
-		}
+		// Log that user out everywhere; an admin resetting their own password keeps this session.
+		c.DB.Exec(`DELETE FROM sessions WHERE user_id = $1 AND token_hash <> $2`, id, auth.SessionHash(r))
 	}
 	if req.IsAdmin != nil {
 		c.DB.Exec(`UPDATE users SET is_admin = $1 WHERE id = $2`, *req.IsAdmin, id)
@@ -158,7 +157,7 @@ func (c Controller) Delete(w http.ResponseWriter, r *http.Request, uid int64) {
 	}
 	res, err := c.DB.Exec(`DELETE FROM users WHERE id = $1`, id) // sessions, folders, uploads cascade
 	if err != nil {
-		utils.WriteErr(w, http.StatusInternalServerError, err.Error())
+		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	if n, _ := res.RowsAffected(); n == 0 {

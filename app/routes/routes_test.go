@@ -43,11 +43,14 @@ func testDB(t *testing.T) *sql.DB {
 // Auth and folder rules, no Telegram needed.
 func TestAuthAndFolders(t *testing.T) {
 	db := testDB(t)
-	h := New(&app.App{DB: db, UploadDir: t.TempDir(), ThumbDir: t.TempDir(), MaxUpload: 1 << 30})
+	h := New(&app.App{DB: db, UploadDir: t.TempDir(), ThumbDir: t.TempDir(), MaxUpload: 1 << 30, Origin: "https://drive.example.com"})
 
 	token := ""
 	call := func(method, path, body string) (int, map[string]any) {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		if strings.HasPrefix(body, "{") {
+			req.Header.Set("Content-Type", "application/json")
+		}
 		if token != "" {
 			req.Header.Set("Authorization", "Bearer "+token)
 		}
@@ -119,6 +122,21 @@ func TestAuthAndFolders(t *testing.T) {
 	if out["received"].(float64) != 4 || out["status"] != "receiving" {
 		t.Fatalf("upload status wrong: %v", out)
 	}
+
+	// CSRF: a browser request from another origin, or a non-JSON body, never changes anything.
+	csrf := httptest.NewRequest("POST", "/api/folders", strings.NewReader(`{"name":"evil"}`))
+	csrf.Header.Set("Content-Type", "application/json")
+	csrf.Header.Set("Origin", "https://evil.fkriachmd.qzz.io")
+	csrf.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, csrf)
+	expect(403, rec.Code, "POST from foreign origin")
+	plain := httptest.NewRequest("POST", "/api/folders", strings.NewReader(`{"name":"evil"}`))
+	plain.Header.Set("Content-Type", "text/plain")
+	plain.Header.Set("Authorization", "Bearer "+token)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, plain)
+	expect(415, rec.Code, "POST with text/plain body")
 
 	// Bulk delete removes a folder with everything below it, and only the caller's folders.
 	_, out = call("POST", "/api/folders", `{"name":"X"}`)
@@ -192,6 +210,9 @@ func TestVideoThumb(t *testing.T) {
 	h := New(&app.App{DB: db, UploadDir: t.TempDir(), ThumbDir: t.TempDir(), MaxUpload: 1 << 30})
 	call := func(method, path, token string, body []byte) int {
 		req := httptest.NewRequest(method, path, bytes.NewReader(body))
+		if bytes.HasPrefix(body, []byte("{")) {
+			req.Header.Set("Content-Type", "application/json")
+		}
 		if token != "" {
 			req.Header.Set("Authorization", "Bearer "+token)
 		}
@@ -201,6 +222,7 @@ func TestVideoThumb(t *testing.T) {
 	}
 	call("POST", "/api/auth/register", "", []byte(`{"username":"fikri","password":"rahasia123"}`))
 	login := httptest.NewRequest("POST", "/api/auth/login", strings.NewReader(`{"username":"fikri","password":"rahasia123"}`))
+	login.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, login)
 	var out map[string]string
@@ -225,5 +247,27 @@ func TestVideoThumb(t *testing.T) {
 		if got := call(tc.method, tc.path, tok, tc.body); got != tc.want {
 			t.Fatalf("%s %s: want %d, got %d", tc.method, tc.path, tc.want, got)
 		}
+	}
+}
+
+// Ten failed logins block the IP and the username for a while.
+func TestLoginRateLimit(t *testing.T) {
+	db := testDB(t)
+	h := New(&app.App{DB: db, UploadDir: t.TempDir(), ThumbDir: t.TempDir(), MaxUpload: 1 << 30})
+	try := func() int {
+		req := httptest.NewRequest("POST", "/api/auth/login", strings.NewReader(`{"username":"ratelimit-test","password":"wrong-password"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("CF-Connecting-IP", "203.0.113.77")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	for i := 0; i < 10; i++ {
+		if c := try(); c != 401 {
+			t.Fatalf("attempt %d: want 401, got %d", i+1, c)
+		}
+	}
+	if c := try(); c != 429 {
+		t.Fatalf("11th attempt: want 429, got %d", c)
 	}
 }

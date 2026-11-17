@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"telegram-drive/app"
@@ -37,6 +38,9 @@ type Controller struct{ *app.App }
 const uploadChunk = 50 << 20 // well under Cloudflare's 100 MB request limit
 
 func (c Controller) partPath(id string) string { return filepath.Join(c.UploadDir, id) }
+
+// maxOpenUploads caps unfinished uploads per user (each holds up to its file size on disk).
+const maxOpenUploads = 4
 
 func (c Controller) Create(w http.ResponseWriter, r *http.Request, uid int64) {
 	var req struct {
@@ -66,23 +70,37 @@ func (c Controller) Create(w http.ResponseWriter, r *http.Request, uid int64) {
 		utils.WriteErr(w, http.StatusNotFound, err.Error())
 		return
 	}
+	// Store only a well-formed "type/subtype": a value like "image/png,text/html" must not
+	// sneak past the inline allowlist on download.
+	if mt, params, err := mime.ParseMediaType(req.Mime); err != nil || !strings.Contains(mt, "/") {
+		req.Mime = ""
+	} else {
+		req.Mime = mime.FormatMediaType(mt, params)
+	}
 	if req.Mime == "" || req.Mime == "application/octet-stream" {
 		req.Mime = "application/octet-stream"
 		if t := mime.TypeByExtension(filepath.Ext(name)); t != "" {
 			req.Mime = t
 		}
 	}
+	// Part files live on the server's disk until sent; a few at a time per user is plenty.
+	var open int
+	c.DB.QueryRow(`SELECT count(*) FROM uploads WHERE user_id = $1 AND status IN ('receiving', 'sending')`, uid).Scan(&open)
+	if open >= maxOpenUploads {
+		utils.WriteErr(w, http.StatusTooManyRequests, "too many uploads in progress; wait for one to finish")
+		return
+	}
 	id := rand.Text()
 	f, err := os.OpenFile(c.partPath(id), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
-		utils.WriteErr(w, http.StatusInternalServerError, err.Error())
+		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	f.Close()
 	if _, err := c.DB.Exec(`INSERT INTO uploads (id, user_id, folder_id, name, size, mime) VALUES ($1, $2, $3, $4, $5, $6)`,
 		id, uid, ref, name, req.Size, req.Mime); err != nil {
 		os.Remove(c.partPath(id))
-		utils.WriteErr(w, http.StatusInternalServerError, err.Error())
+		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	utils.WriteJSON(w, http.StatusCreated, map[string]any{"id": id, "chunk_size": uploadChunk})
@@ -123,7 +141,7 @@ func (c Controller) Chunk(w http.ResponseWriter, r *http.Request, uid int64) {
 	limit := min(uploadChunk, u.Size-offset)
 	f, err := os.OpenFile(c.partPath(u.ID), os.O_WRONLY, 0)
 	if err != nil {
-		utils.WriteErr(w, http.StatusInternalServerError, err.Error())
+		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	defer f.Close()
