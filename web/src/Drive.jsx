@@ -2,6 +2,7 @@
 // Selection works like a desktop file manager: Ctrl/Cmd+A selects everything here,
 // Ctrl/Cmd+click toggles one item, Shift+click selects a range, Delete removes, Esc clears.
 // On touch screens a long press selects, and while something is selected a tap toggles.
+// With a mouse, dragging draws a box that selects everything it touches (Ctrl/Shift adds to it).
 import { useEffect, useRef, useState } from 'react'
 import { EllipsisVertical, LayoutGrid, List, Play, Search, Trash2, Upload, X } from 'lucide-react'
 import { Crumbs, FolderIcon, GridSkeleton, KindIcon, ListSkeleton, MissingBadge, Thumb, fmtDate, fmtSize, kind } from './ui.jsx'
@@ -33,6 +34,9 @@ export default function Drive({ data, query, view, sort, onView, onSort, onGo, o
   const [sel, setSel] = useState(() => new Set())
   // The sticky column titles sit right under the sticky header, whose height changes when it wraps.
   const head = useRef(null)
+  const panel = useRef(null)
+  const [box, setBox] = useState(null) // { left, top, width, height } in panel content coordinates
+  const drag = useRef(null)
   useEffect(() => {
     const el = head.current
     const ro = new ResizeObserver(() => el.parentElement.style.setProperty('--head-h', `${el.offsetHeight}px`))
@@ -81,6 +85,53 @@ export default function Drive({ data, query, view, sort, onView, onSort, onGo, o
     e.stopPropagation()
     return true
   }
+  // ---- drag to select (mouse only; touch scrolls, and long-press selects) ----
+  const point = e => {
+    const r = panel.current.getBoundingClientRect()
+    return { x: e.clientX - r.left + panel.current.scrollLeft, y: e.clientY - r.top + panel.current.scrollTop }
+  }
+  function startBox(e) {
+    if (e.pointerType !== 'mouse' || e.button !== 0 || !order.length) return
+    // Controls keep their own clicks: menus, sort, view switch, path, selection bar.
+    if (e.target.closest('.more, .tools, .crumbs, select, input, a')) return
+    const additive = e.ctrlKey || e.metaKey || e.shiftKey
+    drag.current = { start: point(e), moved: false, base: additive ? new Set(sel) : new Set() }
+  }
+  function moveBox(e) {
+    const d = drag.current
+    if (!d) return
+    const p = point(e)
+    if (!d.moved && Math.hypot(p.x - d.start.x, p.y - d.start.y) < 6) return // a click, not a drag
+    if (!d.moved) { d.moved = true; panel.current.setPointerCapture(e.pointerId) }
+    // Scroll when the pointer reaches the top or bottom edge, so long lists can be boxed too.
+    const r = panel.current.getBoundingClientRect()
+    if (e.clientY > r.bottom - 40) panel.current.scrollTop += 16
+    else if (e.clientY < r.top + (head.current?.offsetHeight ?? 0) + 24) panel.current.scrollTop -= 16
+    const q = point(e)
+    const rect = { left: Math.min(d.start.x, q.x), top: Math.min(d.start.y, q.y), width: Math.abs(q.x - d.start.x), height: Math.abs(q.y - d.start.y) }
+    setBox(rect)
+    // Items whose box overlaps the drawn one, compared in panel content coordinates.
+    const pr = panel.current.getBoundingClientRect()
+    const next = new Set(d.base)
+    for (const el of panel.current.querySelectorAll('[data-key]')) {
+      const b = el.getBoundingClientRect()
+      const x = b.left - pr.left + panel.current.scrollLeft, y = b.top - pr.top + panel.current.scrollTop
+      if (x < rect.left + rect.width && x + b.width > rect.left && y < rect.top + rect.height && y + b.height > rect.top) next.add(el.dataset.key)
+    }
+    setSel(next)
+  }
+  function endBox(e) {
+    // A plain click on empty space clears the selection, like a desktop file manager.
+    if (drag.current && !drag.current.moved && e.type === 'pointerup' && !e.target.closest('[data-key], .tools, .crumbs, .more')) setSel(new Set())
+    if (drag.current?.moved) {
+      setBox(null)
+      // keep drag.current until the click that follows pointerup is swallowed
+      setTimeout(() => { drag.current = null }, 0)
+    } else {
+      drag.current = null
+    }
+  }
+
   const indexOf = (type, it) => order.findIndex(o => o.key === `${type}:${it.id}`)
   const open = (type, it) => e => {
     if (pick(e, indexOf(type, it))) return
@@ -92,6 +143,7 @@ export default function Drive({ data, query, view, sort, onView, onSort, onGo, o
   const item = (type, it) => ({
     className: sel.has(`${type}:${it.id}`) ? 'selected' : undefined,
     'aria-selected': sel.has(`${type}:${it.id}`),
+    'data-key': `${type}:${it.id}`,
     onPointerDown: e => { touch.current = e.pointerType === 'touch' },
     onContextMenu: e => {
       e.preventDefault()
@@ -115,7 +167,10 @@ export default function Drive({ data, query, view, sort, onView, onSort, onGo, o
   )
 
   return (
-    <section className="panel" aria-labelledby="panel-title">
+    <section className={`panel${box ? ' boxing' : ''}`} aria-labelledby="panel-title" ref={panel}
+      onPointerDown={startBox} onPointerMove={moveBox} onPointerUp={endBox} onPointerCancel={endBox}
+      onClickCapture={e => { if (drag.current?.moved) { e.stopPropagation(); e.preventDefault() } drag.current = null }}>
+      {box && <div className="select-box" style={box} aria-hidden />}
       <div className="panel-head" ref={head}>
         <h1 id="panel-title" className="panel-title">
           {query ? <>Hasil untuk “{query}”</> : <Crumbs path={data?.path || []} onGo={onGo} />}

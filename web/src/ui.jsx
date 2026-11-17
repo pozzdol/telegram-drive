@@ -66,7 +66,7 @@ export function Thumb({ file, iconSize = 36 }) {
   if (making) return <div className="thumb sk" aria-hidden />
   const src = thumbURL(file) + (retry ? '&r=1' : '')
   // Shimmers until the picture arrives (thumbnails may come from Telegram on first view).
-  return <img className="thumb sk" src={src} alt="" loading="lazy" decoding="async" onError={onError}
+  return <img className="thumb sk" src={src} alt="" loading="lazy" decoding="async" draggable={false} onError={onError}
     onLoad={e => e.currentTarget.classList.remove('sk')} />
 }
 

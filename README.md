@@ -4,7 +4,7 @@ A self-hosted cloud drive that stores your files in a private Telegram channel. 
 
 It has a web UI (in Indonesian) that should feel familiar if you use Google Drive, plus a Google Photos-style gallery.
 
-- **Drive.** Folders, list and grid views, sort, search, rename, move, delete, drag and drop upload, right-click menus. Select with Ctrl/Cmd+A, Ctrl/Cmd+click and Shift+click, then delete files and whole folders at once.
+- **Drive.** Folders, list and grid views, sort, search, rename, move, delete, drag and drop upload, right-click menus. Select with Ctrl/Cmd+A, Ctrl/Cmd+click, Shift+click, by dragging a box with the mouse, or by long-pressing on a phone, then delete files and whole folders at once.
 - **Photos.** Every photo and video in one timeline, grouped by the day it was taken (EXIF date for JPEGs), with a full-screen viewer, swipe and keyboard navigation.
 - **Previews.** Image thumbnails made on the server; video thumbnails made in the browser, so no ffmpeg is needed.
 - **Documents.** Markdown renders in the viewer (headings, tables, task lists, code blocks), sanitised with DOMPurify; other text files (code, logs, JSON, CSV) show as plain text. Big files load only their first 512 KB.
