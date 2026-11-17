@@ -45,7 +45,7 @@ fi
 systemctl restart telegram-drive
 
 for _ in $(seq 20); do
-  if curl -fsS "http://127.0.0.1:${PORT:-8080}/api/health" >/dev/null; then
+  if curl -fsS "http://127.0.0.1:${PORT:-8080}/api/health" >/dev/null 2>&1; then
     echo "ok: telegram-drive is up"
     exit 0
   fi
