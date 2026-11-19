@@ -173,7 +173,8 @@ func (c Controller) Chunk(w http.ResponseWriter, r *http.Request, uid string) {
 
 // sendUpload pushes a fully received upload to Telegram and creates the file row.
 func (c Controller) sendUpload(id string) {
-	var uid, size int64
+	var uid string
+	var size int64
 	var folderID *string
 	var name, mimeType string
 	if err := c.DB.QueryRow(`SELECT user_id, folder_id, name, size, mime FROM uploads WHERE id = $1`, id).
