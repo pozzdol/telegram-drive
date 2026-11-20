@@ -5,7 +5,7 @@ import { Images, Play } from 'lucide-react'
 import { api } from './api.js'
 import { MissingBadge, PhotoSkeleton, Thumb, kind } from './ui.jsx'
 
-const PAGE = 120
+const PAGE = 100
 
 function dayLabel(ts) {
   const d = new Date(ts * 1000)
@@ -21,17 +21,17 @@ function dayLabel(ts) {
 
 export default function Photos({ version, onOpen, onUpload, onError }) {
   const [files, setFiles] = useState(null)
-  const [more, setMore] = useState(false)
+  const [next, setNext] = useState('') // page token of the next page, '' at the end
   const busy = useRef(false)
   const sentinel = useRef(null)
 
-  const load = async offset => {
+  const load = async token => {
     if (busy.current) return
     busy.current = true
     try {
-      const d = await api(`/api/media?offset=${offset}&limit=${PAGE}`)
-      setFiles(fs => (offset && fs ? [...fs, ...d.files] : d.files))
-      setMore(d.has_more)
+      const d = await api(`/api/media?limit=${PAGE}${token ? `&page_token=${encodeURIComponent(token)}` : ''}`)
+      setFiles(fs => (token && fs ? [...fs, ...d.files] : d.files))
+      setNext(d.next_page_token || '')
     } catch (e) {
       onError(e.message)
     } finally {
@@ -39,15 +39,15 @@ export default function Photos({ version, onOpen, onUpload, onError }) {
     }
   }
 
-  useEffect(() => { load(0) }, [version]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load('') }, [version]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Infinite scroll: fetch the next page well before the end comes into view.
   useEffect(() => {
-    if (!more || !sentinel.current) return
-    const io = new IntersectionObserver(es => { if (es[0].isIntersecting) load(files.length) }, { rootMargin: '1200px' })
+    if (!next || !sentinel.current) return
+    const io = new IntersectionObserver(es => { if (es[0].isIntersecting) load(next) }, { rootMargin: '1200px' })
     io.observe(sentinel.current)
     return () => io.disconnect()
-  }, [more, files]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [next, files]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!files) return <section className="panel photos"><PhotoSkeleton /><PhotoSkeleton tiles={9} /></section>
 
@@ -90,7 +90,7 @@ export default function Photos({ version, onOpen, onUpload, onError }) {
           </ul>
         </div>
       ))}
-      {more && <div ref={sentinel}><PhotoSkeleton tiles={9} title={false} /></div>}
+      {next && <div ref={sentinel}><PhotoSkeleton tiles={9} title={false} /></div>}
     </section>
   )
 }

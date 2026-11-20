@@ -201,7 +201,7 @@ export function MoveDialog({ items, onMove, onClose }) {
 
   useEffect(() => {
     setD(null)
-    api(`/api/list?folder_id=${at}`).then(setD, e => setErr(e.message))
+    api(`/api/list?folder_id=${at}&limit=500`).then(setD, e => setErr(e.message)) // ponytail: first 500 items; folders come first
   }, [at])
 
   // A folder cannot go into itself (so it is not offered); the backend also blocks its subfolders.

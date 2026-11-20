@@ -172,7 +172,7 @@ Authentication uses the `token` cookie set by login, or `Authorization: Bearer <
 | POST | `/api/admin/users` | `{"username","password","is_admin"}` | Admin only |
 | PATCH | `/api/admin/users/{id}` | `{"username"?,"password"?,"is_admin"?}` | Admin only. A password reset logs that user out; admins cannot demote themselves |
 | DELETE | `/api/admin/users/{id}` | | Admin only. `409` while the user still has files; admins cannot delete themselves |
-| GET | `/api/list?folder_id=` | | `{path, folders, files}`; empty means root |
+| GET | `/api/list?folder_id=&sort=&limit=&page_token=` | | `{path, folders, files, next_page_token}`: one page (50 by default, folders first), sorted by `name`, `date` or `size`; send `next_page_token` back for the next page. Empty `folder_id` means root |
 | POST | `/api/folders` | `{"name","parent_id"}` | |
 | PATCH | `/api/folders/{id}` | `{"name"?, "parent_id"?}` | Rename and/or move; `parent_id: ""` means root |
 | POST | `/api/uploads` | `{"name","size","mime","folder_id"}` | Starts a chunked upload |
@@ -181,8 +181,8 @@ Authentication uses the `token` cookie set by login, or `Authorization: Bearer <
 | GET | `/api/files/{id}` | | Download with Range support; `?inline=1` for image, video, audio, PDF or text |
 | GET | `/api/files/{id}/thumb` | | 480 px JPEG preview of an image (JPEG/PNG/GIF/WebP), built once and cached in `data/thumbs/`. For a video: the stored preview, or `404` if none yet |
 | PUT | `/api/files/{id}/thumb` | JPEG body (max 1 MB, 1024 px) | Video only. The UI grabs a frame in the browser (`web/src/videoThumb.js`), so the server needs no ffmpeg. Made right after upload, or the first time an older video appears in the UI |
-| GET | `/api/media?offset=&limit=` | | All photos and videos, newest first (Photos view) |
-| GET | `/api/search?q=` | | Folders and files whose name contains `q` |
+| GET | `/api/media?limit=&page_token=` | | All photos and videos, newest first (Photos view), 100 per page |
+| GET | `/api/search?q=&sort=&page_token=` | | Folders and files whose name contains `q`, paged like `/api/list` |
 | GET | `/api/usage` | | Number of files and total bytes stored |
 | PATCH | `/api/files/{id}` | `{"name"?, "folder_id"?}` | Rename and/or move |
 | POST | `/api/files/{id}/check` | | Asks Telegram whether the file's message still exists: `{missing}` |

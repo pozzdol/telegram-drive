@@ -121,16 +121,39 @@ export default function App() {
     })
   }, [version, authed])
 
-  // Folder contents or search results.
+  // Folder contents or search results, a page (50 items) at a time like Google Drive: the first
+  // page now, the next ones as the list scrolls (loadMore). After a change (version bump) the
+  // same number of items is fetched again, so the list does not jump back to its first page.
+  const shown = useRef(0)
+  shown.current = (data?.folders?.length ?? 0) + (data?.files?.length ?? 0)
+  const more = useRef(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const loadMore = async () => {
+    const d0 = data
+    if (!d0?.next_page_token || more.current) return
+    more.current = true
+    setLoadingMore(true)
+    try {
+      const d = await api(`${d0.key}&page_token=${encodeURIComponent(d0.next_page_token)}`)
+      setData(o => (o?.key !== d0.key ? o : { ...o, folders: [...o.folders, ...d.folders], files: [...o.files, ...d.files], next_page_token: d.next_page_token }))
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      more.current = false
+      setLoadingMore(false)
+    }
+  }
   useEffect(() => {
     if (!authed || (route.view !== 'drive' && route.view !== 'shared')) return
     // A link to one file shows just that file.
     if (guest && link.link.type === 'file') return setData({ path: [], folders: [], files: [link.file], role: link.link.role, key: 'file' })
     let live = true
-    const url = route.view === 'shared' ? '/api/shared'
-      : route.q ? `/api/search?q=${encodeURIComponent(route.q)}` : `/api/list?folder_id=${route.folder || (guest ? link.link.item_id : '')}`
+    const url = route.view === 'shared' ? '/api/shared?'
+      : (route.q ? `/api/search?q=${encodeURIComponent(route.q)}` : `/api/list?folder_id=${route.folder || (guest ? link.link.item_id : '')}`) + `&sort=${sort}`
+    const same = data?.key === url
     setData(d => (d?.key === url ? d : null))
-    api(url).then(d => {
+    const limit = same ? Math.min(500, Math.max(50, shown.current)) : 50
+    api(`${url}&limit=${limit}`).then(d => {
       if (!live) return
       // For a guest the linked folder is the root crumb ("…" in Crumbs), not a step in the path.
       if (guest) d.path = d.path.slice(1)
@@ -143,7 +166,7 @@ export default function App() {
       else setError(e.message)
     })
     return () => { live = false }
-  }, [authed, route.view, route.folder, route.q, version]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [authed, route.view, route.folder, route.q, version, sort]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Search as you type, without filling the history with every keystroke.
   useEffect(() => {
@@ -502,6 +525,9 @@ export default function App() {
             onDelete={removeMany}
             onMove={setMoving}
             onUpload={() => inputRef.current.click()}
+            hasMore={!!data?.next_page_token}
+            loadingMore={loadingMore}
+            onMore={loadMore}
           />
         )}
       </main>

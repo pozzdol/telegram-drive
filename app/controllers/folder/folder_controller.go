@@ -4,6 +4,7 @@ package folder
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"telegram-drive/app"
@@ -41,7 +42,8 @@ func (c Controller) List(w http.ResponseWriter, r *http.Request, uid string) {
 		Files   []models.File   `json:"files"`
 		Role    string          `json:"role"`   // owner, editor, commenter or viewer
 		Shared  bool            `json:"shared"` // somebody else's folder, reached through a share
-	}{[]crumb{}, []models.Folder{}, []models.File{}, role.String(), false}
+		Next    string          `json:"next_page_token,omitempty"`
+	}{[]crumb{}, []models.Folder{}, []models.File{}, role.String(), false, ""}
 
 	rows, err := c.DB.Query(`WITH RECURSIVE up(id, parent_id, name, user_id, depth) AS (
 			SELECT id, parent_id, name, user_id, 0 FROM folders WHERE id = $1
@@ -75,40 +77,37 @@ func (c Controller) List(w http.ResponseWriter, r *http.Request, uid string) {
 	}
 
 	// The root lists the caller's own items; a folder lists everything in it, whoever added it.
-	where := `trashed_at IS NULL AND (($2::uuid IS NULL AND user_id = $1 AND %s IS NULL) OR %s = $2::uuid) ORDER BY lower(name), name`
-	if out.Folders, err = models.QueryFolders(c.DB, `SELECT `+models.FolderColumns+` FROM folders WHERE `+
-		fmt.Sprintf(where, "parent_id", "parent_id"), uid, ref); err != nil {
-		utils.ServerErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	if out.Files, err = models.QueryFiles(c.DB, `SELECT `+models.FileColumns+` FROM files WHERE `+
-		fmt.Sprintf(where, "folder_id", "folder_id"), uid, ref); err != nil {
+	// One page at a time (?page_token=), sorted by ?sort=name|date|size, folders first.
+	where := `trashed_at IS NULL AND (($2::uuid IS NULL AND user_id = $1 AND %[1]s IS NULL) OR %[1]s = $2::uuid)`
+	q := r.URL.Query()
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	if out.Folders, out.Files, out.Next, err = models.ListPage(c.DB, fmt.Sprintf(where, "parent_id"), fmt.Sprintf(where, "folder_id"),
+		[]any{uid, ref}, q.Get("sort"), q.Get("page_token"), limit); err != nil {
 		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	utils.WriteJSON(w, http.StatusOK, out)
 }
 
-// GET /api/search?q= — folders and files whose name contains q, across the whole drive.
+// GET /api/search?q=&sort=&page_token= — folders and files whose name contains q, across the
+// caller's own drive, one page at a time.
 func (c Controller) Search(w http.ResponseWriter, r *http.Request, uid string) {
-	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	q := r.URL.Query()
+	text := strings.TrimSpace(q.Get("q"))
 	out := struct {
 		Folders []models.Folder `json:"folders"`
 		Files   []models.File   `json:"files"`
-	}{[]models.Folder{}, []models.File{}}
-	if q == "" {
+		Next    string          `json:"next_page_token,omitempty"`
+	}{[]models.Folder{}, []models.File{}, ""}
+	if text == "" {
 		utils.WriteJSON(w, http.StatusOK, out)
 		return
 	}
-	like := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(q) + "%"
+	like := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(text) + "%"
+	where := `user_id = $1 AND trashed_at IS NULL AND name ILIKE $2 ESCAPE '\'`
+	limit, _ := strconv.Atoi(q.Get("limit"))
 	var err error
-	if out.Folders, err = models.QueryFolders(c.DB, `SELECT `+models.FolderColumns+` FROM folders
-		WHERE user_id = $1 AND trashed_at IS NULL AND name ILIKE $2 ESCAPE '\' ORDER BY lower(name), name LIMIT 50`, uid, like); err != nil {
-		utils.ServerErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	if out.Files, err = models.QueryFiles(c.DB, `SELECT `+models.FileColumns+` FROM files
-		WHERE user_id = $1 AND trashed_at IS NULL AND name ILIKE $2 ESCAPE '\' ORDER BY created_at DESC LIMIT 200`, uid, like); err != nil {
+	if out.Folders, out.Files, out.Next, err = models.ListPage(c.DB, where, where, []any{uid, like}, q.Get("sort"), q.Get("page_token"), limit); err != nil {
 		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}

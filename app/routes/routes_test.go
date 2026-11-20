@@ -701,3 +701,82 @@ func TestComments(t *testing.T) {
 	code, _ = call(g, "DELETE", "/api/comments/"+gid, "")
 	expect(204, code, "guest deletes their own comment")
 }
+
+// Paging: walking page tokens returns every item once, folders first, in the asked order.
+func TestPaging(t *testing.T) {
+	db := testDB(t)
+	h := New(&app.App{DB: db, UploadDir: t.TempDir(), ThumbDir: t.TempDir(), MaxUpload: 1 << 30})
+	token := ""
+	call := func(method, path, body string) map[string]any {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code >= 300 {
+			t.Fatalf("%s %s: %d %s", method, path, rec.Code, rec.Body.String())
+		}
+		var out map[string]any
+		json.Unmarshal(rec.Body.Bytes(), &out)
+		return out
+	}
+	call("POST", "/api/auth/register", `{"username":"ayah","password":"rahasia123"}`)
+	token = call("POST", "/api/auth/login", `{"username":"ayah","password":"rahasia123"}`)["token"].(string)
+	for _, n := range []string{"b", "A", "c", "D", "e"} {
+		call("POST", "/api/folders", `{"name":"folder `+n+`"}`)
+	}
+	if _, err := db.Exec(`INSERT INTO files (id, user_id, name, size, mime, msg_id, created_at)
+		SELECT gen_random_uuid(), u.id, 'file ' || i, i * 10, CASE WHEN i % 2 = 0 THEN 'image/jpeg' ELSE 'text/plain' END, i, 1000 + i
+		FROM users u, generate_series(1, 8) i`); err != nil {
+		t.Fatal(err)
+	}
+	walk := func(base string) (names []string, pages int) {
+		next := ""
+		for {
+			u := base + "&limit=3"
+			if next != "" {
+				u += "&page_token=" + next
+			}
+			out := call("GET", u, "")
+			pages++
+			for _, k := range []string{"folders", "files"} {
+				for _, it := range out[k].([]any) {
+					names = append(names, it.(map[string]any)["name"].(string))
+				}
+			}
+			next, _ = out["next_page_token"].(string)
+			if next == "" || pages > 20 {
+				return
+			}
+		}
+	}
+	names, pages := walk("/api/list?sort=name")
+	want := "folder A,folder b,folder c,folder D,folder e,file 1,file 2,file 3,file 4,file 5,file 6,file 7,file 8"
+	if strings.Join(names, ",") != want || pages != 5 {
+		t.Fatalf("by name, %d pages: %v", pages, names)
+	}
+	names, _ = walk("/api/list?sort=size")
+	if strings.Join(names[5:], ",") != "file 8,file 7,file 6,file 5,file 4,file 3,file 2,file 1" {
+		t.Fatalf("by size: %v", names)
+	}
+	names, _ = walk("/api/search?q=file&sort=date")
+	if strings.Join(names, ",") != "file 8,file 7,file 6,file 5,file 4,file 3,file 2,file 1" {
+		t.Fatalf("search by date: %v", names)
+	}
+	var media []string
+	next := ""
+	for i := 0; i < 5; i++ {
+		out := call("GET", "/api/media?limit=3&page_token="+next, "")
+		for _, it := range out["files"].([]any) {
+			media = append(media, it.(map[string]any)["name"].(string))
+		}
+		if next, _ = out["next_page_token"].(string); next == "" {
+			break
+		}
+	}
+	if strings.Join(media, ",") != "file 8,file 6,file 4,file 2" {
+		t.Fatalf("media pages: %v", media)
+	}
+}

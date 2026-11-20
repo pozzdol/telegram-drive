@@ -342,21 +342,33 @@ func (c Controller) BulkMove(w http.ResponseWriter, r *http.Request, uid string)
 	utils.WriteJSON(w, http.StatusOK, map[string]int64{"files": nf, "folders": nd})
 }
 
-// GET /api/media?offset=&limit= — photos and videos across all folders, newest first (gallery view).
+// GET /api/media?page_token=&limit= — photos and videos across all folders, newest first
+// (gallery view), one page at a time; see models.Cursor.
 func (c Controller) Media(w http.ResponseWriter, r *http.Request, uid string) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if limit <= 0 || limit > 500 {
-		limit = 200
+	if limit <= 0 || limit > models.MaxPageSize {
+		limit = 100 // small tiles: a big screen shows about 40
 	}
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	const key = `coalesce(nullif(taken_at, 0), created_at), id`
+	args := []any{uid, limit + 1}
+	after := ""
+	if cur := models.ParseToken(r.URL.Query().Get("page_token"), "media"); cur.Phase == "m" {
+		args = append(args, cur.ID)
+		after = ` AND (` + key + `) < (SELECT ` + key + ` FROM files WHERE id = $3::uuid)`
+	}
 	files, err := models.QueryFiles(c.DB, `SELECT `+models.FileColumns+` FROM files
-		WHERE user_id = $1 AND trashed_at IS NULL AND (mime LIKE 'image/%' OR mime LIKE 'video/%') AND mime <> 'image/svg+xml'
-		ORDER BY coalesce(nullif(taken_at, 0), created_at) DESC, id DESC LIMIT $2 OFFSET $3`, uid, limit, max(offset, 0))
+		WHERE user_id = $1 AND trashed_at IS NULL AND (mime LIKE 'image/%' OR mime LIKE 'video/%') AND mime <> 'image/svg+xml'`+after+`
+		ORDER BY coalesce(nullif(taken_at, 0), created_at) DESC, id DESC LIMIT $2`, args...)
 	if err != nil {
 		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	utils.WriteJSON(w, http.StatusOK, map[string]any{"files": files, "has_more": len(files) == limit})
+	out := map[string]any{"files": files}
+	if len(files) > limit {
+		out["files"] = files[:limit]
+		out["next_page_token"] = models.Cursor{Phase: "m", Sort: "media", ID: files[limit-1].ID}.Token()
+	}
+	utils.WriteJSON(w, http.StatusOK, out)
 }
 
 // BackfillTakenAt reads the EXIF capture date of JPEGs uploaded before taken_at existed.

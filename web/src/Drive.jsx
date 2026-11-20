@@ -7,10 +7,11 @@ import { useEffect, useRef, useState } from 'react'
 import { EllipsisVertical, FolderInput, LayoutGrid, List, MessageSquare, Play, Search, Trash2, Upload, Users, X } from 'lucide-react'
 import { Crumbs, Dropdown, FolderIcon, GridSkeleton, KindIcon, ListSkeleton, MissingBadge, Thumb, fmtDate, fmtSize, kind } from './ui.jsx'
 
+// The server sorts (see models.ListPage); these are the choices and their labels.
 const SORTS = {
-  name: { label: 'Nama', cmp: (a, b) => a.name.localeCompare(b.name, 'id', { numeric: true, sensitivity: 'base' }) },
-  date: { label: 'Terakhir ditambahkan', cmp: (a, b) => b.created_at - a.created_at },
-  size: { label: 'Ukuran', cmp: (a, b) => (b.size ?? 0) - (a.size ?? 0) },
+  name: { label: 'Nama' },
+  date: { label: 'Terakhir ditambahkan' },
+  size: { label: 'Ukuran' },
 }
 
 // Right-click and the ⋮ button open the same menu.
@@ -25,9 +26,11 @@ const typingOrModal = e =>
 
 // root: name of the top of the path ("Drive saya" or "Dibagikan dengan saya"). canEdit: false in a
 // folder the user may only look at, which hides move and delete.
-export default function Drive({ data, query, view, sort, root, canEdit = true, onView, onSort, onGo, onOpenFile, onMenu, onUpload, onDelete, onMove }) {
-  const folders = data ? [...data.folders].sort(SORTS[sort === 'size' ? 'name' : sort].cmp) : []
-  const files = data ? [...data.files].sort(SORTS[sort].cmp) : []
+// Items arrive sorted by the server, a page at a time; hasMore/onMore fetch the next page when
+// the end of the list comes near (infinite scroll).
+export default function Drive({ data, query, view, sort, root, canEdit = true, hasMore, loadingMore, onMore, onView, onSort, onGo, onOpenFile, onMenu, onUpload, onDelete, onMove }) {
+  const folders = data?.folders ?? []
+  const files = data?.files ?? []
   const empty = data && !folders.length && !files.length
   // "Shared with me" lists who owns each item instead of when it was added.
   const byOwner = [...folders, ...files].some(x => x.owner)
@@ -50,6 +53,16 @@ export default function Drive({ data, query, view, sort, root, canEdit = true, o
     return () => ro.disconnect()
   }, [])
   const anchor = useRef(0)
+  // Infinite scroll: ask for the next page well before the last row is on screen.
+  const sentinel = useRef(null)
+  const moreRef = useRef(onMore)
+  moreRef.current = onMore
+  useEffect(() => {
+    if (!hasMore || !sentinel.current) return
+    const io = new IntersectionObserver(es => { if (es[0].isIntersecting) moreRef.current() }, { rootMargin: '600px' })
+    io.observe(sentinel.current)
+    return () => io.disconnect()
+  }, [hasMore, data])
   useEffect(() => setSel(new Set()), [data?.key])
 
   const selected = order.filter(o => sel.has(o.key))
@@ -294,6 +307,11 @@ export default function Drive({ data, query, view, sort, root, canEdit = true, o
               </ul>
             </>
           )}
+        </div>
+      )}
+      {hasMore && (
+        <div ref={sentinel} className="more-rows" aria-busy={loadingMore} aria-label="Memuat item berikutnya">
+          {view === 'list' ? <ListSkeleton rows={3} /> : <GridSkeleton />}
         </div>
       )}
     </section>
