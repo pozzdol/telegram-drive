@@ -30,6 +30,20 @@ export default function Lightbox({ items, start, onClose, onDelete, onMissing, o
   }
   const f = items[Math.min(i, items.length - 1)]
 
+  // The back button (browser, Android) closes the viewer instead of leaving the page, as in
+  // Google Drive: opening it adds a history entry, and closing it some other way removes it.
+  const byBack = useRef(false)
+  useEffect(() => {
+    if (!history.state?.lightbox) history.pushState({ ...history.state, lightbox: true }, '')
+    const onPop = () => { byBack.current = true; ref.current?.close() }
+    addEventListener('popstate', onPop)
+    return () => removeEventListener('popstate', onPop)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const closed = () => {
+    if (!byBack.current && history.state?.lightbox) history.back()
+    onClose()
+  }
+
   // The list shrinks when a file is deleted from here.
   useEffect(() => {
     if (!items.length) ref.current.close()
@@ -41,7 +55,7 @@ export default function Lightbox({ items, start, onClose, onDelete, onMissing, o
     for (const n of [items[i - 1], items[i + 1]]) if (n && hasThumb(n.mime)) new Image().src = thumbURL(n)
   }, [i, items])
 
-  if (!f) return <dialog ref={ref} className="lightbox" onClose={onClose} />
+  if (!f) return <dialog ref={ref} className="lightbox" onClose={closed} />
 
   const go = d => setI(x => Math.min(items.length - 1, Math.max(0, x + d)))
   const media = kind(f.mime)
@@ -51,7 +65,7 @@ export default function Lightbox({ items, start, onClose, onDelete, onMissing, o
     <dialog
       ref={ref}
       className="lightbox"
-      onClose={onClose}
+      onClose={closed}
       onKeyDown={e => {
         if (e.target.closest?.('textarea, input')) return // typing a comment
         if (e.key === 'ArrowLeft') go(-1)
