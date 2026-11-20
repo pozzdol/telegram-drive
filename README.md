@@ -246,6 +246,9 @@ Commenters, editors and the owner can comment on files. When someone else commen
 owner gets a message from the login bot, if they linked Telegram and allowed the bot to write to
 them (the login popup asks; accounts linked earlier can link again, or send /start to the bot).
 
+Sharing between separate Telegram Drive servers (`name@other-server`) is being designed in
+[docs/federation.md](docs/federation.md); comments on the draft are welcome.
+
 ## Files deleted in Telegram
 
 If a file's message is deleted in the channel itself, the drive keeps its record and marks it **Hilang di Telegram**. The server notices when the file is opened (the API answers `410 Gone`) and by checking every file against Telegram at startup and every 6 hours, 100 messages per request. Opening a missing file explains what happened and offers **Hapus dari aplikasi**, which removes only the record. Telegram has no trash for channel messages, so the content itself cannot be recovered by the drive.
