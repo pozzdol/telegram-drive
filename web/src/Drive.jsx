@@ -4,7 +4,7 @@
 // On touch screens a long press selects, and while something is selected a tap toggles.
 // With a mouse, dragging draws a box that selects everything it touches (Ctrl/Shift adds to it).
 import { useEffect, useRef, useState } from 'react'
-import { EllipsisVertical, FolderInput, LayoutGrid, List, Play, Search, Trash2, Upload, X } from 'lucide-react'
+import { EllipsisVertical, FolderInput, LayoutGrid, List, Play, Search, Trash2, Upload, Users, X } from 'lucide-react'
 import { Crumbs, Dropdown, FolderIcon, GridSkeleton, KindIcon, ListSkeleton, MissingBadge, Thumb, fmtDate, fmtSize, kind } from './ui.jsx'
 
 const SORTS = {
@@ -23,10 +23,16 @@ const menuFromButton = e => {
 const typingOrModal = e =>
   e.target.closest?.('input, textarea, select, [contenteditable="true"]') || document.querySelector('dialog[open], .menu')
 
-export default function Drive({ data, query, view, sort, onView, onSort, onGo, onOpenFile, onMenu, onUpload, onDelete, onMove }) {
+// root: name of the top of the path ("Drive saya" or "Dibagikan dengan saya"). canEdit: false in a
+// folder the user may only look at, which hides move and delete.
+export default function Drive({ data, query, view, sort, root, canEdit = true, onView, onSort, onGo, onOpenFile, onMenu, onUpload, onDelete, onMove }) {
   const folders = data ? [...data.folders].sort(SORTS[sort === 'size' ? 'name' : sort].cmp) : []
   const files = data ? [...data.files].sort(SORTS[sort].cmp) : []
   const empty = data && !folders.length && !files.length
+  // "Shared with me" lists who owns each item instead of when it was added.
+  const byOwner = [...folders, ...files].some(x => x.owner)
+  // Items the user shared with others get a small people icon, as in Google Drive.
+  const sharedMark = x => (x.shared && !x.owner ? <Users size={14} className="shared-mark" aria-label="Dibagikan" data-tip="Dibagikan" /> : null)
 
   // Display order, so Shift+click ranges match what is on screen.
   const order = [...folders.map(f => ({ type: 'folder', item: f, key: `folder:${f.id}` })),
@@ -48,17 +54,17 @@ export default function Drive({ data, query, view, sort, onView, onSort, onGo, o
 
   const selected = order.filter(o => sel.has(o.key))
   const latest = useRef({})
-  latest.current = { order, selected, onDelete }
+  latest.current = { order, selected, onDelete, canEdit }
   useEffect(() => {
     const onKey = e => {
       if (typingOrModal(e)) return
-      const { order, selected, onDelete } = latest.current
+      const { order, selected, onDelete, canEdit } = latest.current
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a' && order.length) {
         e.preventDefault()
         setSel(new Set(order.map(o => o.key)))
       } else if (e.key === 'Escape') {
         setSel(new Set())
-      } else if (e.key === 'Delete' && selected.length) {
+      } else if (e.key === 'Delete' && selected.length && canEdit) {
         e.preventDefault()
         onDelete(selected)
       }
@@ -173,14 +179,14 @@ export default function Drive({ data, query, view, sort, onView, onSort, onGo, o
       {box && <div className="select-box" style={box} aria-hidden />}
       <div className="panel-head" ref={head}>
         <h1 id="panel-title" className="panel-title">
-          {query ? <>Hasil untuk “{query}”</> : <Crumbs path={data?.path || []} onGo={onGo} />}
+          {query ? <>Hasil untuk “{query}”</> : <Crumbs path={data?.path || []} onGo={onGo} root={root} />}
         </h1>
         {selected.length > 0 ? (
           <div className="tools selbar" role="toolbar" aria-label="Item terpilih">
             <button className="icon-btn" onClick={() => setSel(new Set())} aria-label="Batalkan pilihan" data-tip="Batalkan pilihan (Esc)"><X size={18} /></button>
             <strong>{selected.length} dipilih</strong>
-            <button className="btn ghost" onClick={() => onMove(selected)} data-tip="Pindahkan ke folder lain" aria-label="Pindahkan"><FolderInput size={18} aria-hidden /><span className="hide-xs">Pindahkan</span></button>
-            <button className="btn ghost danger" onClick={() => onDelete(selected)} data-tip="Hapus (Delete)" aria-label="Hapus"><Trash2 size={18} aria-hidden /><span className="hide-xs">Hapus</span></button>
+            {canEdit && <button className="btn ghost" onClick={() => onMove(selected)} data-tip="Pindahkan ke folder lain" aria-label="Pindahkan"><FolderInput size={18} aria-hidden /><span className="hide-xs">Pindahkan</span></button>}
+            {canEdit && <button className="btn ghost danger" onClick={() => onDelete(selected)} data-tip="Hapus (Delete)" aria-label="Hapus"><Trash2 size={18} aria-hidden /><span className="hide-xs">Hapus</span></button>}
           </div>
         ) : (
         <div className="tools">
@@ -201,6 +207,18 @@ export default function Drive({ data, query, view, sort, onView, onSort, onGo, o
             <h2>Tidak ada yang cocok</h2>
             <p className="muted">Coba kata lain, atau sebagian nama filenya saja.</p>
           </div>
+        ) : !canEdit && !data.path?.length ? (
+          <div className="empty">
+            <Users size={40} aria-hidden />
+            <h2>Belum ada yang dibagikan denganmu</h2>
+            <p className="muted">File dan folder yang dibagikan anggota keluarga lain muncul di sini.</p>
+          </div>
+        ) : !canEdit ? (
+          <div className="empty">
+            <FolderInput size={40} aria-hidden />
+            <h2>Folder ini kosong</h2>
+            <p className="muted">Kamu hanya bisa melihat isi folder ini. Minta pemiliknya menjadikanmu editor untuk menambah file.</p>
+          </div>
         ) : (
           <div className="empty">
             <Upload size={40} aria-hidden />
@@ -212,15 +230,15 @@ export default function Drive({ data, query, view, sort, onView, onSort, onGo, o
       ) : view === 'list' ? (
         <table className="list">
           <thead>
-            <tr><th>Nama</th><th className="hide-sm">Ditambahkan</th><th className="num hide-xs">Ukuran</th><th><span className="sr">Tindakan</span></th></tr>
+            <tr><th>Nama</th><th className="hide-sm">{byOwner ? 'Pemilik' : 'Ditambahkan'}</th><th className="num hide-xs">Ukuran</th><th><span className="sr">Tindakan</span></th></tr>
           </thead>
           <tbody>
             {folders.map(f => (
               <tr key={`d${f.id}`} {...item('folder', f)}>
                 <td><button className="name" onClick={open('folder', f)}><FolderIcon />
-                  <span className="name-col"><span className="nm" data-tip={f.name} data-tip-overflow>{f.name}</span><span className="meta">{fmtDate(f.created_at)}</span></span>
+                  <span className="name-col"><span className="nm-row"><span className="nm" data-tip={f.name} data-tip-overflow>{f.name}</span>{sharedMark(f)}</span><span className="meta">{f.owner ?? fmtDate(f.created_at)}</span></span>
                 </button></td>
-                <td className="hide-sm muted">{fmtDate(f.created_at)}</td>
+                <td className="hide-sm muted">{f.owner ?? fmtDate(f.created_at)}</td>
                 <td className="num hide-xs muted">—</td>
                 <td className="act">{more('folder', f)}</td>
               </tr>
@@ -229,11 +247,11 @@ export default function Drive({ data, query, view, sort, onView, onSort, onGo, o
               <tr key={`f${f.id}`} {...item('file', f)}>
                 <td><button className={`name${f.missing ? ' missing' : ''}`} onClick={open('file', f)}><KindIcon mime={f.mime} />
                   <span className="name-col">
-                    <span className="nm-row"><span className="nm" data-tip={f.name} data-tip-overflow>{f.name}</span>{f.missing && <MissingBadge />}</span>
-                    <span className="meta">{f.missing ? 'Hilang di Telegram' : `${fmtDate(f.created_at)} · ${fmtSize(f.size)}`}</span>
+                    <span className="nm-row"><span className="nm" data-tip={f.name} data-tip-overflow>{f.name}</span>{sharedMark(f)}{f.missing && <MissingBadge />}</span>
+                    <span className="meta">{f.missing ? 'Hilang di Telegram' : `${f.owner ?? fmtDate(f.created_at)} · ${fmtSize(f.size)}`}</span>
                   </span>
                 </button></td>
-                <td className="hide-sm muted">{fmtDate(f.created_at)}</td>
+                <td className="hide-sm muted">{f.owner ?? fmtDate(f.created_at)}</td>
                 <td className="num hide-xs muted">{fmtSize(f.size)}</td>
                 <td className="act">{more('file', f)}</td>
               </tr>

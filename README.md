@@ -188,6 +188,11 @@ Authentication uses the `token` cookie set by login, or `Authorization: Bearer <
 | POST | `/api/files/{id}/check` | | Asks Telegram whether the file's message still exists: `{missing}` |
 | POST | `/api/move` | `{"files":[ids],"folders":[ids],"to":id}` | Bulk move into one folder (`""` = root), in one transaction; `400` if a folder would go into itself or its subfolder |
 | POST | `/api/delete` | `{"files":[ids],"folders":[ids]}` | Move to the trash, folders with everything inside them. Nothing leaves Telegram yet |
+| GET | `/api/people` | | Other accounts, to pick whom to share with |
+| GET | `/api/shared` | | Files and folders others shared with you, with `owner` and your `role` |
+| GET | `/api/shares/{id}` | | Who has access to a file or folder: the owner and everyone it is shared with |
+| PUT | `/api/shares/{id}` | `{"user_id", "role"}` | Share (or change the role): `viewer`, `commenter` or `editor`. Owners and editors may share |
+| DELETE | `/api/shares/{id}/{user}` | | Take access away; anyone may remove their own |
 | GET | `/api/trash` | | Items in the trash (the ones picked, not their contents), with `days` until they are purged |
 | POST | `/api/trash/restore` | `{"ids":[ids]}` | Put items back; one whose folder is gone or still in the trash returns to the root |
 | POST | `/api/trash/purge` | `{"ids":[ids]}` or `{"all":true}` | Delete for good: Telegram messages first, 100 per call, then the records. Items older than 30 days are purged automatically |
@@ -215,6 +220,13 @@ CI runs the same checks on every push and pull request. Keep changes small and f
 Users, folders and files are identified by **UUIDv7** (`0190a3b2-…`): nobody can guess or count another family member's files from an id, and because UUIDv7 starts with a timestamp, new rows still land at the end of the primary-key index. The server creates them (`models.NewID`); the root folder is `""` in the API (`folder_id`, `parent_id`, `to`).
 
 Databases created before this change (numeric ids) are converted once with `deploy/migrate-uuid.sql`. Stop the service, back up with `pg_dump`, run the script with `psql -v ON_ERROR_STOP=1 -f`, delete `data/thumbs/*`, then start the new version. The script runs in one transaction and refuses to run twice.
+
+## Sharing and the trash
+
+A file or folder can be shared with other accounts as viewer, commenter or editor. Sharing a
+folder covers everything inside it. Editors may upload, create folders, rename, move (only within
+the owner's folder tree), delete and share further; whatever they add stays theirs. Deleted items
+go to their owner's trash and are purged, Telegram messages included, after 30 days.
 
 ## Files deleted in Telegram
 

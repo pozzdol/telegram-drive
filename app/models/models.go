@@ -2,6 +2,7 @@
 package models
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"github.com/google/uuid"
@@ -12,6 +13,9 @@ type Folder struct {
 	ParentID  *string `json:"parent_id"`
 	Name      string  `json:"name"`
 	CreatedAt int64   `json:"created_at"`
+	Shared    bool    `json:"shared"`          // shared with at least one other account
+	Owner     string  `json:"owner,omitempty"` // in "Shared with me": who it belongs to
+	Role      string  `json:"role,omitempty"`  // in "Shared with me": what the caller may do
 }
 
 type File struct {
@@ -21,8 +25,11 @@ type File struct {
 	Size      int64   `json:"size"`
 	Mime      string  `json:"mime"`
 	CreatedAt int64   `json:"created_at"`
-	TakenAt   *int64  `json:"taken_at"` // when a photo was taken (EXIF), null if unknown
-	Missing   bool    `json:"missing"`  // the message was deleted in Telegram; only the record is left
+	TakenAt   *int64  `json:"taken_at"`        // when a photo was taken (EXIF), null if unknown
+	Missing   bool    `json:"missing"`         // the message was deleted in Telegram; only the record is left
+	Shared    bool    `json:"shared"`          // shared with at least one other account
+	Owner     string  `json:"owner,omitempty"` // in "Shared with me": who it belongs to
+	Role      string  `json:"role,omitempty"`  // in "Shared with me": what the caller may do
 }
 
 type Upload struct {
@@ -39,9 +46,13 @@ type Upload struct {
 var ErrFolderNotFound = errors.New("folder not found")
 
 // FileColumns is the SELECT list matching File; QueryFiles scans rows of exactly these columns.
-const FileColumns = `id, folder_id, name, size, mime, created_at, taken_at, missing_at IS NOT NULL`
+const FileColumns = `id, folder_id, name, size, mime, created_at, taken_at, missing_at IS NOT NULL,
+	EXISTS (SELECT 1 FROM shares WHERE shares.item_id = files.id)`
 
-// QueryFolders runs a query selecting id, parent_id, name, created_at.
+// FolderColumns is the SELECT list matching Folder, for QueryFolders.
+const FolderColumns = `id, parent_id, name, created_at, EXISTS (SELECT 1 FROM shares WHERE shares.item_id = folders.id)`
+
+// QueryFolders runs a query selecting FolderColumns.
 func QueryFolders(db *sql.DB, query string, args ...any) ([]Folder, error) {
 	rows, err := db.Query(query, args...)
 	if err != nil {
@@ -51,7 +62,7 @@ func QueryFolders(db *sql.DB, query string, args ...any) ([]Folder, error) {
 	out := []Folder{}
 	for rows.Next() {
 		var f Folder
-		if err := rows.Scan(&f.ID, &f.ParentID, &f.Name, &f.CreatedAt); err != nil {
+		if err := rows.Scan(&f.ID, &f.ParentID, &f.Name, &f.CreatedAt, &f.Shared); err != nil {
 			return nil, err
 		}
 		out = append(out, f)
@@ -69,7 +80,7 @@ func QueryFiles(db *sql.DB, query string, args ...any) ([]File, error) {
 	out := []File{}
 	for rows.Next() {
 		var f File
-		if err := rows.Scan(&f.ID, &f.FolderID, &f.Name, &f.Size, &f.Mime, &f.CreatedAt, &f.TakenAt, &f.Missing); err != nil {
+		if err := rows.Scan(&f.ID, &f.FolderID, &f.Name, &f.Size, &f.Mime, &f.CreatedAt, &f.TakenAt, &f.Missing, &f.Shared); err != nil {
 			return nil, err
 		}
 		if f.TakenAt != nil && *f.TakenAt == 0 {
@@ -80,17 +91,13 @@ func QueryFiles(db *sql.DB, query string, args ...any) ([]File, error) {
 	return out, rows.Err()
 }
 
-// FolderRef turns a client folder id into a SQL value: "" means root (NULL),
-// anything else must be a folder owned by uid and not in the trash.
-func FolderRef(db *sql.DB, uid, id string) (any, error) {
+// FolderRef turns a client folder id into a SQL value: "" means uid's own root (NULL); anything
+// else must be a folder, not in the trash, where uid has at least role min.
+func FolderRef(ctx context.Context, db *sql.DB, uid, id string, min Role) (any, error) {
 	if id == "" {
 		return nil, nil
 	}
-	if !ValidID(id) {
-		return nil, ErrFolderNotFound
-	}
-	var x int
-	if err := db.QueryRow(`SELECT 1 FROM folders WHERE id = $1 AND user_id = $2 AND trashed_at IS NULL`, id, uid).Scan(&x); err != nil {
+	if r, err := Access(ctx, db, uid, "folder", id); err != nil || r < min {
 		return nil, ErrFolderNotFound
 	}
 	return id, nil

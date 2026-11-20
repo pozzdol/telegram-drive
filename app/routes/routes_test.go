@@ -373,3 +373,126 @@ func TestLoginRateLimit(t *testing.T) {
 		t.Fatalf("11th attempt: want 429, got %d", c)
 	}
 }
+
+// Sharing: a folder shared with another account covers everything inside it; the role decides
+// what they may do, and editors work only inside the owner's tree.
+func TestSharing(t *testing.T) {
+	db := testDB(t)
+	h := New(&app.App{DB: db, UploadDir: t.TempDir(), ThumbDir: t.TempDir(), MaxUpload: 1 << 30})
+	call := func(token, method, path, body string) (int, map[string]any) {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		if strings.HasPrefix(body, "{") {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		var out map[string]any
+		json.Unmarshal(rec.Body.Bytes(), &out)
+		return rec.Code, out
+	}
+	expect := func(want, got int, what string) {
+		t.Helper()
+		if got != want {
+			t.Fatalf("%s: want %d, got %d", what, want, got)
+		}
+	}
+	login := func(name, pw string) string {
+		_, out := call("", "POST", "/api/auth/login", `{"username":"`+name+`","password":"`+pw+`"}`)
+		return out["token"].(string)
+	}
+	call("", "POST", "/api/auth/register", `{"username":"ayah","password":"rahasia123"}`)
+	a := login("ayah", "rahasia123")
+	_, out := call(a, "POST", "/api/admin/users", `{"username":"ibu","password":"rahasia123"}`)
+	idB := out["id"].(string)
+	_, out = call(a, "POST", "/api/admin/users", `{"username":"adik","password":"rahasia123"}`)
+	idC := out["id"].(string)
+	b, c := login("ibu", "rahasia123"), login("adik", "rahasia123")
+
+	_, out = call(a, "POST", "/api/folders", `{"name":"Keluarga"}`)
+	p := out["id"].(string)
+	_, out = call(a, "POST", "/api/folders", `{"name":"Liburan","parent_id":"`+p+`"}`)
+	q := out["id"].(string)
+
+	code, _ := call(b, "GET", "/api/list?folder_id="+p, "")
+	expect(404, code, "list a folder nobody shared")
+	code, _ = call(b, "GET", "/api/shares/"+p, "")
+	expect(404, code, "see who has access without access")
+	code, _ = call(a, "PUT", "/api/shares/"+p, `{"user_id":"`+idB+`","role":"owner"}`)
+	expect(400, code, "share with the owner role")
+	code, _ = call(a, "PUT", "/api/shares/"+p, `{"user_id":"`+idB+`","role":"viewer"}`)
+	expect(204, code, "share as viewer")
+
+	_, out = call(b, "GET", "/api/shared", "")
+	if fs := out["folders"].([]any); len(fs) != 1 || fs[0].(map[string]any)["owner"] != "ayah" {
+		t.Fatalf("shared with me: %v", out)
+	}
+	code, out = call(b, "GET", "/api/list?folder_id="+q, "")
+	expect(200, code, "viewer lists a subfolder")
+	if out["role"] != "viewer" || out["shared"] != true || len(out["path"].([]any)) != 2 {
+		t.Fatalf("viewer list of the subfolder: %v", out)
+	}
+	code, _ = call(b, "PATCH", "/api/folders/"+q, `{"name":"x"}`)
+	expect(404, code, "viewer renames")
+	code, _ = call(b, "POST", "/api/folders", `{"name":"x","parent_id":"`+p+`"}`)
+	expect(404, code, "viewer creates a folder")
+	_, out = call(b, "POST", "/api/delete", `{"folders":["`+q+`"]}`)
+	if out["folders"].(float64) != 0 {
+		t.Fatalf("viewer deleted something: %v", out)
+	}
+
+	call(a, "PUT", "/api/shares/"+p, `{"user_id":"`+idB+`","role":"editor"}`)
+	code, out = call(b, "POST", "/api/folders", `{"name":"Dari ibu","parent_id":"`+p+`"}`)
+	expect(201, code, "editor creates a folder")
+	r := out["id"].(string)
+	_, out = call(a, "GET", "/api/list?folder_id="+p, "")
+	if len(out["folders"].([]any)) != 2 || out["role"] != "owner" {
+		t.Fatalf("owner should see the editor's folder: %v", out)
+	}
+	_, out = call(b, "POST", "/api/move", `{"folders":["`+q+`"],"to":""}`)
+	if out["folders"].(float64) != 0 {
+		t.Fatalf("editor moved the owner's folder out of their tree: %v", out)
+	}
+	_, out = call(b, "POST", "/api/move", `{"folders":["`+q+`"],"to":"`+r+`"}`)
+	if out["folders"].(float64) != 1 {
+		t.Fatalf("editor should move within the shared folder: %v", out)
+	}
+	_, out = call(b, "POST", "/api/delete", `{"folders":["`+q+`"]}`)
+	if out["folders"].(float64) != 1 {
+		t.Fatalf("editor should delete: %v", out)
+	}
+	_, out = call(a, "GET", "/api/trash", "")
+	if its := out["items"].([]any); len(its) != 1 || its[0].(map[string]any)["id"] != q {
+		t.Fatalf("deleted folder should be in the owner's trash: %v", out)
+	}
+	code, _ = call(b, "POST", "/api/trash/restore", `{"ids":["`+q+`"]}`)
+	expect(200, code, "editor undoes the delete")
+	code, _ = call(b, "GET", "/api/list?folder_id="+q, "")
+	expect(200, code, "restored folder is back")
+	code, _ = call(b, "POST", "/api/trash/purge", `{"ids":["`+q+`"]}`)
+	expect(200, code, "purge someone else's item (ignored)")
+
+	code, _ = call(b, "PUT", "/api/shares/"+p, `{"user_id":"`+idC+`","role":"viewer"}`)
+	expect(204, code, "editor shares further")
+	code, _ = call(c, "GET", "/api/list?folder_id="+q, "")
+	expect(200, code, "reshared viewer lists")
+	_, out = call(c, "GET", "/api/shares/"+p, "")
+	if out["role"] != "viewer" || len(out["people"].([]any)) != 2 || out["owner"].(map[string]any)["username"] != "ayah" {
+		t.Fatalf("access list: %v", out)
+	}
+	code, _ = call(c, "DELETE", "/api/shares/"+p+"/"+idB, "")
+	expect(404, code, "viewer removes someone else")
+	code, _ = call(c, "DELETE", "/api/shares/"+p+"/"+idC, "")
+	expect(204, code, "viewer leaves")
+	code, _ = call(c, "GET", "/api/list?folder_id="+p, "")
+	expect(404, code, "after leaving")
+
+	// Purging a shared folder for good removes its shares too.
+	call(a, "POST", "/api/delete", `{"folders":["`+p+`"]}`)
+	call(a, "POST", "/api/trash/purge", `{"all":true}`)
+	var n int
+	db.QueryRow(`SELECT count(*) FROM shares`).Scan(&n)
+	if n != 0 {
+		t.Fatalf("%d shares left after purging", n)
+	}
+}

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Download, FolderInput, FolderOpen, FolderPlus, HardDrive, Images, KeyRound, Link2, LogOut, Pencil, Plus, Search,
-  Trash2, Unlink, Upload, Users as UsersIcon, X,
+  Trash2, Unlink, Upload, UserCog, UserPlus, Users as UsersIcon, X,
 } from 'lucide-react'
 import { api, fileURL, uploadFile } from './api.js'
 import { makeVideoThumb } from './videoThumb.js'
@@ -9,12 +9,13 @@ import { telegramAuth, telegramConfig } from './telegram.js'
 import Drive from './Drive.jsx'
 import Photos from './Photos.jsx'
 import Trash from './Trash.jsx'
+import ShareDialog from './Share.jsx'
 import Lightbox from './Lightbox.jsx'
 import Users, { Avatar, PasswordDialog } from './Users.jsx'
 import { AskDialog, ListSkeleton, useTooltips, Menu, MoveDialog, Sk, UploadPanel, fmtSize, isViewable, kind } from './ui.jsx'
 
-// ---- URL state: ?view=photos | ?view=users | ?view=trash | ?folder=<id> | ?q=text ----
-const VIEWS = ['photos', 'users', 'trash']
+// ---- URL state: ?view=photos | ?view=users | ?view=trash | ?view=shared | ?folder=<id> | ?q=text ----
+const VIEWS = ['photos', 'users', 'trash', 'shared']
 const readRoute = () => {
   const p = new URLSearchParams(location.search)
   const v = p.get('view')
@@ -27,6 +28,9 @@ const routeURL = r => {
   if (r.q) p.set('q', r.q)
   return p.size ? `?${p}` : location.pathname
 }
+
+// Owners and editors may change things; viewers and commenters only look.
+const editable = role => !role || role === 'owner' || role === 'editor'
 
 // Per-browser preferences; storage may be unavailable (private mode), so never rely on it.
 const pref = (k, def) => { try { return localStorage.getItem(k) || def } catch { return def } }
@@ -48,6 +52,7 @@ export default function App() {
   const [menu, setMenu] = useState(null) // { at, items }
   const [ask, setAsk] = useState(null)
   const [moving, setMoving] = useState(null)
+  const [sharing, setSharing] = useState(null) // { type, item }
   const [lightbox, setLightbox] = useState(null) // { items, start }
   const [dragging, setDragging] = useState(false)
   const [view, setView] = useState(() => pref('view', 'list'))
@@ -99,11 +104,12 @@ export default function App() {
 
   // Folder contents or search results.
   useEffect(() => {
-    if (!authed || route.view !== 'drive') return
+    if (!authed || (route.view !== 'drive' && route.view !== 'shared')) return
     let live = true
-    const url = route.q ? `/api/search?q=${encodeURIComponent(route.q)}` : `/api/list?folder_id=${route.folder}`
+    const url = route.view === 'shared' ? '/api/shared'
+      : route.q ? `/api/search?q=${encodeURIComponent(route.q)}` : `/api/list?folder_id=${route.folder}`
     setData(d => (d?.key === url ? d : null))
-    api(url).then(d => { if (live) setData({ ...d, key: url }) }, e => {
+    api(url).then(d => { if (live) setData({ path: [], ...d, key: url }) }, e => {
       if (!live) return
       if (e.status === 401) setAuthed(false)
       else if (e.status === 404) nav({}, true)
@@ -125,9 +131,12 @@ export default function App() {
   }
 
   // ---- actions ----
+  // New folders and uploads go into the open folder when the user may add to it,
+  // otherwise into their own drive.
+  const addTarget = () => (route.view === 'drive' && !route.q && editable(data?.role) ? route.folder : '')
   const newFolder = async () => {
     const name = await askUser({ title: 'Folder baru', input: true, value: 'Folder tanpa judul', confirm: 'Buat' })
-    if (name) run(() => api('/api/folders', { method: 'POST', body: { name, parent_id: route.view === 'drive' && !route.q ? route.folder : '' } }))
+    if (name) run(() => api('/api/folders', { method: 'POST', body: { name, parent_id: addTarget() } }))
   }
   const rename = async (type, it) => {
     const name = await askUser({ title: 'Ganti nama', input: true, value: it.name, selectBase: type === 'file', confirm: 'Simpan' })
@@ -238,7 +247,7 @@ export default function App() {
         ...(tgBot ? [me?.telegram_linked
           ? { label: 'Putuskan Telegram', icon: Unlink, onSelect: unlinkTelegram }
           : { label: 'Hubungkan Telegram', icon: Link2, onSelect: linkTelegram }] : []),
-        ...(me?.is_admin ? [{ label: 'Kelola pengguna', icon: UsersIcon, onSelect: () => nav({ view: 'users' }) }] : []),
+        ...(me?.is_admin ? [{ label: 'Kelola pengguna', icon: UserCog, onSelect: () => nav({ view: 'users' }) }] : []),
         '-',
         { label: 'Keluar', icon: LogOut, onSelect: logout },
       ],
@@ -246,30 +255,53 @@ export default function App() {
   }
 
   // type null: right-click on a multi-selection; it is then the selected [{ type, item }].
-  const itemMenu = (type, it, at) => setMenu(type === null ? {
-    at,
-    items: [
-      { label: `Pindahkan ${it.length} item`, icon: FolderInput, onSelect: () => setMoving(it) },
-      '-',
-      { label: `Pindahkan ${it.length} item ke sampah`, icon: Trash2, danger: true, onSelect: () => removeMany(it) },
-    ],
-  } : {
-    at,
-    items: [
-      type === 'folder'
-        ? { label: 'Buka', icon: FolderOpen, onSelect: () => nav({ folder: it.id }) }
-        : { label: 'Buka', icon: FolderOpen, onSelect: () => openFile(it, data?.files || [it]) },
-      ...(type === 'file' && !it.missing ? [{ label: 'Download', icon: Download, onSelect: () => download(it) }] : []),
-      ...(route.q ? [{ label: 'Tampilkan lokasi', icon: FolderInput, onSelect: () => nav({ folder: (type === 'file' ? it.folder_id : it.parent_id) || '' }) }] : []),
-      '-',
-      { label: 'Ganti nama', icon: Pencil, onSelect: () => rename(type, it) },
-      { label: 'Pindahkan', icon: FolderInput, onSelect: () => setMoving([{ type, item: it }]) },
-      '-',
-      it.missing
-        ? { label: 'Hapus dari aplikasi', icon: Trash2, danger: true, onSelect: () => showMissing(it) }
-        : { label: 'Pindahkan ke sampah', icon: Trash2, danger: true, onSelect: () => remove(type, it) },
-    ],
-  })
+  // In "Shared with me" each item carries its own role; in a folder the folder's role counts.
+  const atShared = route.view === 'shared'
+  const itemMenu = (type, it, at) => {
+    if (type === null) {
+      if (atShared || !editable(data?.role)) return
+      return setMenu({
+        at,
+        items: [
+          { label: `Pindahkan ${it.length} item`, icon: FolderInput, onSelect: () => setMoving(it) },
+          '-',
+          { label: `Pindahkan ${it.length} item ke sampah`, icon: Trash2, danger: true, onSelect: () => removeMany(it) },
+        ],
+      })
+    }
+    const role = it.role ?? data?.role
+    const edit = editable(role)
+    setMenu({
+      at,
+      items: [
+        type === 'folder'
+          ? { label: 'Buka', icon: FolderOpen, onSelect: () => nav({ folder: it.id }) }
+          : { label: 'Buka', icon: FolderOpen, onSelect: () => openFile(it, data?.files || [it]) },
+        ...(type === 'file' && !it.missing ? [{ label: 'Download', icon: Download, onSelect: () => download(it) }] : []),
+        ...(route.q ? [{ label: 'Tampilkan lokasi', icon: FolderInput, onSelect: () => nav({ folder: (type === 'file' ? it.folder_id : it.parent_id) || '' }) }] : []),
+        ...(edit ? [{ label: 'Bagikan', icon: UserPlus, onSelect: () => setSharing({ type, item: it }) }] : []),
+        ...(edit && !atShared ? [
+          '-',
+          { label: 'Ganti nama', icon: Pencil, onSelect: () => rename(type, it) },
+          { label: 'Pindahkan', icon: FolderInput, onSelect: () => setMoving([{ type, item: it }]) },
+          '-',
+          it.missing
+            ? { label: 'Hapus dari aplikasi', icon: Trash2, danger: true, onSelect: () => showMissing(it) }
+            : { label: 'Pindahkan ke sampah', icon: Trash2, danger: true, onSelect: () => remove(type, it) },
+        ] : []),
+        ...(atShared ? ['-', { label: 'Hapus dari daftar saya', icon: Trash2, onSelect: () => leave(it) }] : []),
+      ],
+    })
+  }
+  // Takes away the caller's own access to something shared with them.
+  const leave = async it => {
+    const ok = await askUser({
+      title: `Hapus “${it.name}” dari daftar?`,
+      message: `Kamu tidak bisa membukanya lagi sampai ${it.owner} membagikannya lagi. Filenya sendiri tidak terhapus.`,
+      confirm: 'Hapus dari daftar',
+    })
+    if (ok) run(() => api(`/api/shares/${it.id}/${me.id}`, { method: 'DELETE' }))
+  }
   const newMenu = e => {
     const r = e.currentTarget.getBoundingClientRect()
     setMenu({
@@ -284,7 +316,7 @@ export default function App() {
 
   // One file at a time: several 1 GB uploads in parallel only slow each other down.
   const startUploads = list => {
-    const target = route.view === 'drive' && !route.q ? route.folder : ''
+    const target = addTarget()
     for (const file of list) {
       const key = crypto.randomUUID()
       const update = patch => setUploads(us => us.map(x => (x.key === key ? { ...x, ...patch } : x)))
@@ -341,7 +373,7 @@ export default function App() {
   }
   if (!authed) return <Login onDone={() => { setAuthed(true); refresh() }} />
 
-  const here = route.view === 'photos' ? 'Foto' : route.view === 'trash' ? 'Drive saya' : data?.path?.at(-1)?.name || 'Drive saya'
+  const here = route.view === 'photos' ? 'Foto' : (addTarget() && data?.path?.at(-1)?.name) || 'Drive saya'
   const goDrive = () => nav({})
   const goPhotos = () => nav({ view: 'photos' })
   const showUsers = route.view === 'users' && me?.is_admin
@@ -359,11 +391,12 @@ export default function App() {
         <nav className="side-nav" aria-label="Bagian">
           <button aria-current={route.view === 'drive' ? 'page' : undefined} onClick={goDrive}><HardDrive size={20} aria-hidden /> Drive saya</button>
           <button aria-current={route.view === 'photos' ? 'page' : undefined} onClick={goPhotos}><Images size={20} aria-hidden /> Foto</button>
+          <button aria-current={route.view === 'shared' ? 'page' : undefined} onClick={() => nav({ view: 'shared' })}><UsersIcon size={20} aria-hidden /> Dibagikan dengan saya</button>
           <button aria-current={route.view === 'trash' ? 'page' : undefined} onClick={() => nav({ view: 'trash' })}><Trash2 size={20} aria-hidden /> Sampah</button>
         </nav>
         {me?.is_admin && (
           <nav className="side-nav admin-nav" aria-label="Admin">
-            <button aria-current={route.view === 'users' ? 'page' : undefined} onClick={() => nav({ view: 'users' })}><UsersIcon size={20} aria-hidden /> Pengguna</button>
+            <button aria-current={route.view === 'users' ? 'page' : undefined} onClick={() => nav({ view: 'users' })}><UserCog size={20} aria-hidden /> Pengguna</button>
           </nav>
         )}
         {usage && (
@@ -414,7 +447,9 @@ export default function App() {
             sort={sort}
             onView={v => { setView(v); savePref('view', v) }}
             onSort={s => { setSort(s); savePref('sort', s) }}
-            onGo={id => nav({ folder: id })}
+            onGo={id => (id || !data?.shared ? nav({ folder: id }) : nav({ view: 'shared' }))}
+            root={atShared || data?.shared ? 'Dibagikan dengan saya' : 'Drive saya'}
+            canEdit={!atShared && editable(data?.role)}
             onOpenFile={openFile}
             onMenu={itemMenu}
             onDelete={removeMany}
@@ -427,6 +462,7 @@ export default function App() {
       <nav className="tabbar" aria-label="Bagian">
         <button aria-current={route.view === 'drive' ? 'page' : undefined} onClick={goDrive}><HardDrive size={22} aria-hidden /> Drive</button>
         <button aria-current={route.view === 'photos' ? 'page' : undefined} onClick={goPhotos}><Images size={22} aria-hidden /> Foto</button>
+        <button aria-current={route.view === 'shared' ? 'page' : undefined} onClick={() => nav({ view: 'shared' })}><UsersIcon size={22} aria-hidden /> Dibagikan</button>
         <button aria-current={route.view === 'trash' ? 'page' : undefined} onClick={() => nav({ view: 'trash' })}><Trash2 size={22} aria-hidden /> Sampah</button>
       </nav>
       {route.view !== 'users' && route.view !== 'trash' && <button className="fab" onClick={newMenu} aria-label="Baru" aria-haspopup="menu"><Plus size={26} /></button>}
@@ -438,7 +474,8 @@ export default function App() {
       {ask && <AskDialog ask={ask} onDone={v => { setAsk(null); ask.resolve(v) }} />}
       {moving && <MoveDialog items={moving} onMove={to => move(moving, to)} onClose={() => setMoving(null)} />}
       {pwOpen && <PasswordDialog onClose={() => setPwOpen(false)} />}
-      {lightbox && <Lightbox items={lightbox.items} start={lightbox.start} onClose={() => setLightbox(null)} onDelete={deleteFromLightbox} onMissing={refresh} />}
+      {lightbox && <Lightbox items={lightbox.items} start={lightbox.start} onClose={() => setLightbox(null)} onDelete={!atShared && editable(data?.role) || route.view === 'photos' ? deleteFromLightbox : undefined} onMissing={refresh} />}
+      {sharing && <ShareDialog target={sharing} me={me} onClose={changed => { setSharing(null); if (changed) refresh() }} onLeft={() => route.view !== 'drive' || refresh()} />}
     </div>
   )
 }

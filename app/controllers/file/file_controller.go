@@ -25,14 +25,18 @@ import (
 
 type Controller struct{ *app.App }
 
-// getFile loads a file row owned by uid, writing 404 if missing.
-func (c Controller) getFile(w http.ResponseWriter, r *http.Request, uid string) (f models.File, msgID int, ok bool) {
+// getFile loads a file uid may use with at least role min, writing 404 otherwise.
+func (c Controller) getFile(w http.ResponseWriter, r *http.Request, uid string, min models.Role) (f models.File, msgID int, ok bool) {
 	id, ok := utils.PathID(w, r)
 	if !ok {
 		return f, 0, false
 	}
-	err := c.DB.QueryRow(`SELECT id, folder_id, name, size, mime, created_at, msg_id, missing_at IS NOT NULL FROM files WHERE id = $1 AND user_id = $2`,
-		id, uid).Scan(&f.ID, &f.FolderID, &f.Name, &f.Size, &f.Mime, &f.CreatedAt, &msgID, &f.Missing)
+	if role, err := models.Access(r.Context(), c.DB, uid, "file", id); err != nil || role < min {
+		utils.WriteErr(w, http.StatusNotFound, "file not found")
+		return f, 0, false
+	}
+	err := c.DB.QueryRow(`SELECT id, folder_id, name, size, mime, created_at, msg_id, missing_at IS NOT NULL FROM files WHERE id = $1`,
+		id).Scan(&f.ID, &f.FolderID, &f.Name, &f.Size, &f.Mime, &f.CreatedAt, &msgID, &f.Missing)
 	if err != nil {
 		utils.WriteErr(w, http.StatusNotFound, "file not found")
 		return f, 0, false
@@ -42,7 +46,7 @@ func (c Controller) getFile(w http.ResponseWriter, r *http.Request, uid string) 
 
 // GET /api/files/{id}[?inline=1] — supports Range, so videos can seek and downloads can resume.
 func (c Controller) Download(w http.ResponseWriter, r *http.Request, uid string) {
-	f, msgID, ok := c.getFile(w, r, uid)
+	f, msgID, ok := c.getFile(w, r, uid, models.Viewer)
 	if !ok {
 		return
 	}
@@ -83,7 +87,7 @@ func (c Controller) openFailed(w http.ResponseWriter, fileID string, err error) 
 
 // POST /api/files/{id}/check — asks Telegram whether the file's message still exists.
 func (c Controller) Check(w http.ResponseWriter, r *http.Request, uid string) {
-	f, msgID, ok := c.getFile(w, r, uid)
+	f, msgID, ok := c.getFile(w, r, uid, models.Viewer)
 	if !ok {
 		return
 	}
@@ -173,7 +177,7 @@ var thumbSlots = make(chan struct{}, 3)
 // GET /api/files/{id}/thumb — 480 px JPEG preview, built once and cached in data/thumbs.
 // The UI adds ?v=<created_at> so the immutable cache never shows a reused id's old picture.
 func (c Controller) Thumb(w http.ResponseWriter, r *http.Request, uid string) {
-	f, msgID, ok := c.getFile(w, r, uid)
+	f, msgID, ok := c.getFile(w, r, uid, models.Viewer)
 	if !ok {
 		return
 	}
@@ -216,7 +220,7 @@ func isVideo(mime string) bool { return strings.HasPrefix(mime, "video/") }
 // ponytail: browser decodes the video (any codec it can play), so the server needs no ffmpeg.
 // Add an ffmpeg path only if previews must exist before anyone opens the drive in a browser.
 func (c Controller) PutThumb(w http.ResponseWriter, r *http.Request, uid string) {
-	f, _, ok := c.getFile(w, r, uid)
+	f, _, ok := c.getFile(w, r, uid, models.Viewer)
 	if !ok {
 		return
 	}
@@ -277,11 +281,22 @@ func (c Controller) BulkMove(w http.ResponseWriter, r *http.Request, uid string)
 	if req.Folders == nil {
 		req.Folders = []string{}
 	}
-	ref, err := models.FolderRef(c.DB, uid, req.To)
+	ref, err := models.FolderRef(r.Context(), c.DB, uid, req.To, models.Editor)
 	if err != nil {
 		utils.WriteErr(w, http.StatusNotFound, err.Error())
 		return
 	}
+	// Only items uid may move there (see models.CanMove); the rest are left alone.
+	allowed := func(kind string, ids []string) []string {
+		ok := []string{}
+		for _, id := range ids {
+			if models.CanMove(r.Context(), c.DB, uid, kind, id, req.To) == nil {
+				ok = append(ok, id)
+			}
+		}
+		return ok
+	}
+	req.Files, req.Folders = allowed("file", req.Files), allowed("folder", req.Folders)
 	if req.To != "" && len(req.Folders) > 0 {
 		// Walk up from the target: if a selected folder is on the way, the move would make a loop.
 		var loops int
@@ -302,12 +317,12 @@ func (c Controller) BulkMove(w http.ResponseWriter, r *http.Request, uid string)
 		return
 	}
 	defer tx.Rollback()
-	files, err := tx.Exec(`UPDATE files SET folder_id = $1 WHERE user_id = $2 AND id = ANY($3::uuid[]) AND trashed_at IS NULL`, ref, uid, req.Files)
+	files, err := tx.Exec(`UPDATE files SET folder_id = $1 WHERE id = ANY($2::uuid[]) AND trashed_at IS NULL`, ref, req.Files)
 	if err != nil {
 		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	folders, err := tx.Exec(`UPDATE folders SET parent_id = $1 WHERE user_id = $2 AND id = ANY($3::uuid[]) AND trashed_at IS NULL`, ref, uid, req.Folders)
+	folders, err := tx.Exec(`UPDATE folders SET parent_id = $1 WHERE id = ANY($2::uuid[]) AND trashed_at IS NULL`, ref, req.Folders)
 	if err != nil {
 		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
@@ -387,7 +402,7 @@ func inlineSafe(m string) bool {
 
 // rename and/or move. folder_id 0 moves to root; omit a field to leave it unchanged.
 func (c Controller) Update(w http.ResponseWriter, r *http.Request, uid string) {
-	f, _, ok := c.getFile(w, r, uid)
+	f, _, ok := c.getFile(w, r, uid, models.Editor)
 	if !ok {
 		return
 	}
@@ -407,11 +422,11 @@ func (c Controller) Update(w http.ResponseWriter, r *http.Request, uid string) {
 		c.DB.Exec(`UPDATE files SET name = $1 WHERE id = $2 AND trashed_at IS NULL`, name, f.ID)
 	}
 	if req.FolderID != nil {
-		ref, err := models.FolderRef(c.DB, uid, *req.FolderID)
-		if err != nil {
+		if err := models.CanMove(r.Context(), c.DB, uid, "file", f.ID, *req.FolderID); err != nil {
 			utils.WriteErr(w, http.StatusNotFound, err.Error())
 			return
 		}
+		ref, _ := models.FolderRef(r.Context(), c.DB, uid, *req.FolderID, models.Editor)
 		c.DB.Exec(`UPDATE files SET folder_id = $1 WHERE id = $2 AND trashed_at IS NULL`, ref, f.ID)
 	}
 	w.WriteHeader(http.StatusNoContent)

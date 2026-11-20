@@ -8,6 +8,7 @@ import (
 	"telegram-drive/app/controllers/auth"
 	"telegram-drive/app/controllers/file"
 	"telegram-drive/app/controllers/folder"
+	"telegram-drive/app/controllers/share"
 	"telegram-drive/app/controllers/upload"
 	"telegram-drive/app/controllers/user"
 	"telegram-drive/app/utils"
@@ -19,6 +20,7 @@ func New(a *app.App) http.Handler {
 	fileC := file.Controller{App: a}
 	uploadC := upload.Controller{App: a}
 	userC := user.Controller{App: a}
+	shareC := share.Controller{App: a}
 	secure, admin := authC.Secure, authC.Admin
 
 	mux := http.NewServeMux()
@@ -64,6 +66,13 @@ func New(a *app.App) http.Handler {
 	mux.HandleFunc("PATCH /api/files/{id}", secure(fileC.Update))
 	mux.HandleFunc("POST /api/delete", secure(fileC.BulkTrash)) // into the trash; folders with everything inside
 	mux.HandleFunc("POST /api/move", secure(fileC.BulkMove))    // several files/folders into one folder
+
+	// Sharing with other accounts
+	mux.HandleFunc("GET /api/people", secure(shareC.People))
+	mux.HandleFunc("GET /api/shared", secure(shareC.Shared)) // shared with me
+	mux.HandleFunc("GET /api/shares/{id}", secure(shareC.List))
+	mux.HandleFunc("PUT /api/shares/{id}", secure(shareC.Put))
+	mux.HandleFunc("DELETE /api/shares/{id}/{user}", secure(shareC.Delete))
 
 	// Trash
 	mux.HandleFunc("GET /api/trash", secure(fileC.TrashList))

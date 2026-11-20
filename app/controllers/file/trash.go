@@ -47,7 +47,17 @@ func (c Controller) BulkTrash(w http.ResponseWriter, r *http.Request, uid string
 	if !ok {
 		return
 	}
-	nf, nd, err := models.Trash(r.Context(), c.DB, uid, req.Files, req.Folders)
+	// Deleting needs editor rights; items the caller may not delete are left alone.
+	editable := func(kind string, ids []string) []string {
+		ok := []string{}
+		for _, id := range ids {
+			if role, err := models.Access(r.Context(), c.DB, uid, kind, id); err == nil && role >= models.Editor {
+				ok = append(ok, id)
+			}
+		}
+		return ok
+	}
+	nf, nd, err := models.Trash(r.Context(), c.DB, uid, editable("file", req.Files), editable("folder", req.Folders))
 	if err != nil {
 		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
@@ -94,8 +104,9 @@ func (c Controller) TrashList(w http.ResponseWriter, r *http.Request, uid string
 	utils.WriteJSON(w, http.StatusOK, map[string]any{"items": items, "days": models.TrashDays})
 }
 
-// readGroups reads {"ids":[...]} (trash group ids) or {"all":true}.
-func (c Controller) readGroups(w http.ResponseWriter, r *http.Request, uid string) ([]string, bool) {
+// readGroups reads {"ids":[...]} (trash group ids) or {"all":true}: the caller's own items, and
+// with byMe also the items the caller deleted from someone else's folder (to undo a delete).
+func (c Controller) readGroups(w http.ResponseWriter, r *http.Request, uid string, byMe bool) ([]string, bool) {
 	var req struct {
 		IDs []string `json:"ids"`
 		All bool     `json:"all"`
@@ -117,8 +128,8 @@ func (c Controller) readGroups(w http.ResponseWriter, r *http.Request, uid strin
 		return nil, false
 	}
 	// Only the caller's own groups.
-	ids, err := c.groups(`SELECT trash_id FROM folders WHERE user_id = $1 AND id = trash_id AND id = ANY($2::uuid[])
-		UNION SELECT trash_id FROM files WHERE user_id = $1 AND id = trash_id AND id = ANY($2::uuid[])`, uid, req.IDs)
+	ids, err := c.groups(`SELECT trash_id FROM folders WHERE (user_id = $1 OR (trashed_by = $1 AND $3)) AND id = trash_id AND id = ANY($2::uuid[])
+		UNION SELECT trash_id FROM files WHERE (user_id = $1 OR (trashed_by = $1 AND $3)) AND id = trash_id AND id = ANY($2::uuid[])`, uid, req.IDs, byMe)
 	if err != nil {
 		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return nil, false
@@ -143,11 +154,11 @@ func (c Controller) groups(query string, args ...any) ([]string, error) {
 
 // POST /api/trash/restore {"ids":[...]} — puts the items back where they were.
 func (c Controller) TrashRestore(w http.ResponseWriter, r *http.Request, uid string) {
-	ids, ok := c.readGroups(w, r, uid)
+	ids, ok := c.readGroups(w, r, uid, true)
 	if !ok {
 		return
 	}
-	if _, err := models.Restore(r.Context(), c.DB, uid, ids); err != nil {
+	if _, err := models.Restore(r.Context(), c.DB, ids); err != nil {
 		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -156,7 +167,7 @@ func (c Controller) TrashRestore(w http.ResponseWriter, r *http.Request, uid str
 
 // POST /api/trash/purge {"ids":[...]} or {"all":true} — deletes for good, Telegram messages too.
 func (c Controller) TrashPurge(w http.ResponseWriter, r *http.Request, uid string) {
-	ids, ok := c.readGroups(w, r, uid)
+	ids, ok := c.readGroups(w, r, uid, false)
 	if !ok {
 		return
 	}
@@ -208,6 +219,7 @@ func (c Controller) purge(ctx context.Context, groups []string) (int, error) {
 		if _, err := c.DB.Exec(`DELETE FROM files WHERE id = ANY($1::uuid[])`, ids); err != nil {
 			return start, err
 		}
+		c.DB.Exec(`DELETE FROM shares WHERE item_id = ANY($1::uuid[])`, ids)
 		for _, id := range ids {
 			os.Remove(ThumbPath(c.ThumbDir, id))
 		}
@@ -224,6 +236,7 @@ func (c Controller) purge(ctx context.Context, groups []string) (int, error) {
 		`UPDATE files SET folder_id = NULL WHERE folder_id IN (SELECT id FROM folders WHERE trash_id = ANY($1::uuid[]))`,
 		`UPDATE folders SET parent_id = NULL WHERE parent_id IN (SELECT id FROM folders WHERE trash_id = ANY($1::uuid[]))
 			AND (trash_id IS NULL OR trash_id <> ALL($1::uuid[]))`,
+		`DELETE FROM shares WHERE item_id IN (SELECT id FROM folders WHERE trash_id = ANY($1::uuid[]))`,
 		`DELETE FROM folders WHERE trash_id = ANY($1::uuid[])`, // one statement: parents and children together
 	} {
 		if _, err := tx.Exec(q, groups); err != nil {

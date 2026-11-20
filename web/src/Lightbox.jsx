@@ -59,7 +59,7 @@ export default function Lightbox({ items, start, onClose, onDelete, onMissing })
         <span className="lb-name" data-tip={f.name} data-tip-overflow>{f.name}</span>
         <button className="icon-btn" onClick={() => setInfo(v => !v)} aria-label="Info" aria-pressed={info}><Info size={20} /></button>
         <a className="icon-btn" href={fileURL(f.id)} aria-label="Download"><Download size={20} /></a>
-        <button className="icon-btn" onClick={() => onDelete(f)} aria-label="Hapus"><Trash2 size={20} /></button>
+        {onDelete && <button className="icon-btn" onClick={() => onDelete(f)} aria-label="Pindahkan ke sampah" data-tip="Pindahkan ke sampah"><Trash2 size={20} /></button>}
       </header>
 
       <div
@@ -78,7 +78,7 @@ export default function Lightbox({ items, start, onClose, onDelete, onMissing })
             <TriangleAlert size={32} aria-hidden />
             <h2>File ini sudah tidak ada di Telegram</h2>
             <p>Pesannya terhapus dari channel penyimpanan, jadi isinya tidak bisa dibuka lagi. Yang tersisa hanya catatannya di aplikasi.</p>
-            <button className="btn danger-fill" onClick={() => onDelete(f)}><Trash2 size={18} aria-hidden /> Hapus dari aplikasi</button>
+            {onDelete && <button className="btn danger-fill" onClick={() => onDelete(f)}><Trash2 size={18} aria-hidden /> Hapus dari aplikasi</button>}
           </div>
         )}
         {!gone.has(f.id) && k === 'text' && (

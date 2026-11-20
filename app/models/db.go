@@ -77,6 +77,18 @@ ALTER TABLE files ADD COLUMN IF NOT EXISTS trash_id uuid;
 ALTER TABLE files ADD COLUMN IF NOT EXISTS trashed_by uuid REFERENCES users(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS folders_trash ON folders(trash_id) WHERE trash_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS files_trash ON files(trash_id) WHERE trash_id IS NOT NULL;
+-- Sharing with other accounts. A share on a folder covers everything inside it.
+-- item_id has no foreign key (it is a file or a folder); purging an item removes its shares.
+CREATE TABLE IF NOT EXISTS shares (
+	item_id    uuid NOT NULL,
+	item_type  text NOT NULL CHECK (item_type IN ('file', 'folder')),
+	user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE, -- who it is shared with
+	role       text NOT NULL CHECK (role IN ('viewer', 'commenter', 'editor')),
+	created_by uuid REFERENCES users(id) ON DELETE SET NULL,
+	created_at bigint NOT NULL DEFAULT extract(epoch FROM now())::bigint,
+	PRIMARY KEY (item_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS shares_user ON shares(user_id);
 `
 
 // Open connects to PostgreSQL (DATABASE_URL, e.g. postgres://user:pass@host:5432/db?sslmode=require)

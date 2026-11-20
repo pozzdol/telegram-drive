@@ -118,7 +118,7 @@ export function Menu({ at, items, onClose }) {
           className={it.danger ? 'danger' : undefined} onClick={() => { onClose(); it.onSelect() }}>
           {it.checked !== undefined
             ? <Check size={18} aria-hidden className={it.checked ? 'tick' : 'tick off'} />
-            : <it.icon size={18} aria-hidden />} {it.label}
+            : it.icon ? <it.icon size={18} aria-hidden /> : <span className="tick" aria-hidden />} {it.label}
         </button>
       ))}
     </div>
@@ -362,6 +362,7 @@ export function MissingBadge({ compact }) {
 
 // A dropdown that looks like the rest of the app (the native <select> popup cannot be styled).
 // options: [{ value, label }].
+// options: [{ value, label, danger?, icon? }] or '-' for a divider.
 export function Dropdown({ value, options, onChange, label }) {
   const [at, setAt] = useState(null)
   const current = options.find(o => o.value === value)
@@ -375,7 +376,7 @@ export function Dropdown({ value, options, onChange, label }) {
       <button type="button" className="dropdown" onClick={open} aria-haspopup="menu" aria-expanded={!!at} aria-label={`${label}: ${current?.label}`}>
         <span>{current?.label}</span><ChevronDown size={16} aria-hidden />
       </button>
-      {at && <Menu at={at} onClose={close} items={options.map(o => ({ label: o.label, checked: o.value === value, onSelect: () => onChange(o.value) }))} />}
+      {at && <Menu at={at} onClose={close} items={options.map(o => (o === '-' ? o : { label: o.label, icon: o.icon, danger: o.danger, checked: o.danger ? undefined : o.value === value, onSelect: () => onChange(o.value) }))} />}
     </>
   )
 }

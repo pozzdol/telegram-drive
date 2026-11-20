@@ -65,7 +65,7 @@ func (c Controller) Create(w http.ResponseWriter, r *http.Request, uid string) {
 		utils.WriteErr(w, http.StatusRequestEntityTooLarge, "file too large (max "+strconv.FormatInt(c.MaxUpload>>20, 10)+" MiB)")
 		return
 	}
-	ref, err := models.FolderRef(c.DB, uid, req.FolderID)
+	ref, err := models.FolderRef(r.Context(), c.DB, uid, req.FolderID, models.Editor)
 	if err != nil {
 		utils.WriteErr(w, http.StatusNotFound, err.Error())
 		return
