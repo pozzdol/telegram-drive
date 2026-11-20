@@ -19,6 +19,12 @@ type Config struct {
 	TelegramBotToken string // optional: enables "Log in with Telegram" (token from @BotFather)
 	TelegramBotName  string // the bot\'s username, without @
 
+	// Federation (docs/federation.md): sharing with users on other Telegram Drive servers.
+	Federation      bool     // FEDERATION=on
+	PublicAPIURL    string   // this API as other servers reach it, e.g. https://drive-api.example.com
+	FedAllowed      []string // FED_ALLOWED_HOSTS: if set, only these servers
+	FedAllowPrivate bool     // FED_ALLOW_PRIVATE=1: allow private addresses (LAN setups)
+
 	TelegramAPIID     int
 	TelegramAPIHash   string
 	TelegramPhone     string
@@ -28,6 +34,7 @@ type Config struct {
 func (c Config) SessionPath() string { return filepath.Join(c.DataDir, "telegram.session") }
 func (c Config) UploadDir() string   { return filepath.Join(c.DataDir, "uploads") }
 func (c Config) ThumbDir() string    { return filepath.Join(c.DataDir, "thumbs") }
+func (c Config) FedKeyPath() string  { return filepath.Join(c.DataDir, "federation.key") }
 
 // Load reads .env (real environment variables win) and validates required values.
 func Load() (Config, error) {
@@ -42,6 +49,17 @@ func Load() (Config, error) {
 		DatabaseURL:      os.Getenv("DATABASE_URL"),
 		TelegramAPIHash:  os.Getenv("TELEGRAM_API_HASH"),
 		TelegramPhone:    os.Getenv("TELEGRAM_PHONE"),
+	}
+	c.Federation = os.Getenv("FEDERATION") == "on"
+	c.PublicAPIURL = strings.TrimRight(os.Getenv("PUBLIC_API_URL"), "/")
+	c.FedAllowPrivate = os.Getenv("FED_ALLOW_PRIVATE") == "1"
+	for _, h := range strings.Split(os.Getenv("FED_ALLOWED_HOSTS"), ",") {
+		if h = strings.TrimSpace(h); h != "" {
+			c.FedAllowed = append(c.FedAllowed, h)
+		}
+	}
+	if c.Federation && (c.PublicAPIURL == "" || c.AllowedOrigin == "") {
+		return c, errors.New("FEDERATION=on needs PUBLIC_API_URL and ALLOWED_ORIGIN (the UI's domain is the host in addresses)")
 	}
 	c.TelegramAPIID, _ = strconv.Atoi(os.Getenv("TELEGRAM_API_ID"))
 	c.TelegramChannelID, _ = strconv.ParseInt(os.Getenv("TELEGRAM_CHANNEL_ID"), 10, 64)

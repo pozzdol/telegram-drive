@@ -136,6 +136,76 @@ CREATE TABLE IF NOT EXISTS comments (
 	created_at bigint NOT NULL DEFAULT extract(epoch FROM now())::bigint
 );
 CREATE INDEX IF NOT EXISTS comments_file ON comments(file_id, created_at);
+-- Federation (docs/federation.md). Outgoing: items shared with people on other servers.
+CREATE TABLE IF NOT EXISTS federated_shares (
+	id           uuid PRIMARY KEY,
+	item_id      uuid NOT NULL,
+	item_type    text NOT NULL,
+	shared_by    uuid REFERENCES users(id) ON DELETE SET NULL,
+	remote       text NOT NULL,            -- budi@drive.example.org
+	remote_host  text NOT NULL,
+	role         text NOT NULL CHECK (role IN ('viewer', 'commenter', 'editor')),
+	secret_hash  text NOT NULL,
+	state        text NOT NULL DEFAULT 'pending', -- pending, active
+	allow_copy   boolean NOT NULL DEFAULT true,
+	max_file     bigint NOT NULL DEFAULT 2147483648,
+	upload_limit bigint NOT NULL DEFAULT 21474836480,
+	uploaded     bigint NOT NULL DEFAULT 0,
+	created_at   bigint NOT NULL DEFAULT extract(epoch FROM now())::bigint,
+	UNIQUE (item_id, remote)
+);
+CREATE TABLE IF NOT EXISTS fed_grants ( -- people the recipient re-shared with on their own server
+	share      uuid NOT NULL REFERENCES federated_shares(id) ON DELETE CASCADE,
+	actor      text NOT NULL,
+	role       text NOT NULL CHECK (role IN ('viewer', 'commenter', 'editor')),
+	granted_by text NOT NULL,
+	PRIMARY KEY (share, actor)
+);
+CREATE TABLE IF NOT EXISTS fed_subscribers ( -- remote people who get this server's bot notifications
+	share   uuid NOT NULL REFERENCES federated_shares(id) ON DELETE CASCADE,
+	actor   text NOT NULL,
+	chat_id bigint NOT NULL,
+	link    text NOT NULL, -- where the notification sends them (their own server)
+	PRIMARY KEY (share, actor)
+);
+CREATE TABLE IF NOT EXISTS fed_notify_tokens (
+	token_hash text PRIMARY KEY,
+	share      uuid NOT NULL REFERENCES federated_shares(id) ON DELETE CASCADE,
+	actor      text NOT NULL,
+	link       text NOT NULL,
+	expires_at bigint NOT NULL
+);
+-- Incoming: items people on other servers shared with users here.
+CREATE TABLE IF NOT EXISTS remote_shares (
+	id         uuid PRIMARY KEY,
+	user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	owner      text NOT NULL,     -- fikri@drive.example.com
+	owner_host text NOT NULL,
+	owner_api  text NOT NULL,
+	share_id   text NOT NULL,     -- the owner server's id
+	secret     text NOT NULL,
+	item_type  text NOT NULL,
+	item_id    text NOT NULL,     -- the shared item's id on the owner server
+	name       text NOT NULL,
+	size       bigint,
+	files      bigint,
+	role       text NOT NULL,
+	allow_copy boolean NOT NULL DEFAULT true,
+	state      text NOT NULL DEFAULT 'pending', -- pending, active
+	created_at bigint NOT NULL DEFAULT extract(epoch FROM now())::bigint,
+	UNIQUE (owner_api, share_id)
+);
+CREATE TABLE IF NOT EXISTS remote_grants ( -- re-shared with accounts on this server
+	share   uuid NOT NULL REFERENCES remote_shares(id) ON DELETE CASCADE,
+	user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	role    text NOT NULL CHECK (role IN ('viewer', 'commenter', 'editor')),
+	PRIMARY KEY (share, user_id)
+);
+CREATE TABLE IF NOT EXISTS fed_blocked (
+	user_id uuid REFERENCES users(id) ON DELETE CASCADE, -- NULL: blocked for the whole server
+	host    text NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS fed_blocked_uniq ON fed_blocked (coalesce(user_id, '00000000-0000-0000-0000-000000000000'), host);
 -- What guests added: their typed name (they have no account), and uploads they started.
 ALTER TABLE files ADD COLUMN IF NOT EXISTS guest_name text;
 ALTER TABLE folders ADD COLUMN IF NOT EXISTS guest_name text;

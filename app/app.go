@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"net/http"
 
+	"telegram-drive/app/utils/fed"
 	"telegram-drive/app/utils/tgclient"
 )
 
@@ -19,6 +20,7 @@ type App struct {
 	Origin    string // UI origin allowed by CORS
 	BotToken  string // Telegram bot for "Log in with Telegram"; empty disables it
 	BotName   string
+	Fed       *fed.Node // nil when federation is off
 }
 
 // AuthedHandler is a handler behind auth.Controller.Secure; uid is the logged-in user.

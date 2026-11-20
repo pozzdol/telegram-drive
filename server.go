@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -16,6 +17,7 @@ import (
 	"telegram-drive/app/controllers/upload"
 	"telegram-drive/app/models"
 	"telegram-drive/app/routes"
+	"telegram-drive/app/utils/fed"
 	"telegram-drive/app/utils/tgclient"
 	"telegram-drive/config"
 )
@@ -35,12 +37,21 @@ func main() {
 		log.Fatal(err)
 	}
 
+	var node *fed.Node
+	if cfg.Federation {
+		u, _ := url.Parse(cfg.AllowedOrigin)
+		if node, err = fed.New(u.Host, cfg.PublicAPIURL, cfg.FedKeyPath(), cfg.FedAllowPrivate, cfg.FedAllowed); err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("federation on: addresses are user@%s", node.Host)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	tg := tgclient.New(cfg.TelegramAPIID, cfg.TelegramAPIHash, cfg.SessionPath())
 	err = tg.Run(ctx, cfg.TelegramPhone, cfg.TelegramChannelID, func(ctx context.Context) error {
-		a := &app.App{Ctx: ctx, DB: db, TG: tg, MaxUpload: cfg.MaxUploadMB << 20, UploadDir: cfg.UploadDir(), ThumbDir: cfg.ThumbDir(), Origin: cfg.AllowedOrigin, BotToken: cfg.TelegramBotToken, BotName: cfg.TelegramBotName}
+		a := &app.App{Ctx: ctx, DB: db, TG: tg, MaxUpload: cfg.MaxUploadMB << 20, UploadDir: cfg.UploadDir(), ThumbDir: cfg.ThumbDir(), Origin: cfg.AllowedOrigin, BotToken: cfg.TelegramBotToken, BotName: cfg.TelegramBotName, Fed: node}
 		upload.Controller{App: a}.Resume()
 		go file.Controller{App: a}.BackfillTakenAt()
 		go file.Controller{App: a}.WatchMissing(6 * time.Hour)
