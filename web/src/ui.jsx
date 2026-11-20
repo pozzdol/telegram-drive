@@ -403,6 +403,9 @@ export function useTooltips() {
     const hide = () => { clearTimeout(timer); current = null; tip.classList.remove('show') }
     const show = el => {
       const r = el.getBoundingClientRect()
+      // A modal dialog sits in the top layer, above anything in <body>: the tip goes inside it.
+      const host = el.closest('dialog[open]') || document.body
+      if (tip.parentNode !== host) host.appendChild(tip)
       tip.textContent = el.dataset.tip
       tip.classList.add('show')
       const t = tip.getBoundingClientRect()
