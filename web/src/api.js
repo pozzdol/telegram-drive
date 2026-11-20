@@ -8,12 +8,21 @@ export class ApiError extends Error {
   }
 }
 
+// A guest of a public link (/s/<token>) has no login: their guest session rides on every call,
+// as the X-Guest header, or as ?g= where no header can go (<img src>, <video src>, downloads).
+let guest = ''
+export const setGuest = t => { guest = t || '' }
+export const withGuest = url => (guest ? `${url}${url.includes('?') ? '&' : '?'}g=${encodeURIComponent(guest)}` : url)
+
 // JSON API call. Auth rides on the HttpOnly cookie set by /api/auth/login.
 export async function api(path, { method = 'GET', body } = {}) {
+  const headers = {}
+  if (body) headers['Content-Type'] = 'application/json'
+  if (guest) headers['X-Guest'] = guest
   const res = await fetch(BASE + path, {
     method,
     credentials: 'include',
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   })
   if (res.status === 204) return null
@@ -22,9 +31,9 @@ export async function api(path, { method = 'GET', body } = {}) {
   return data
 }
 
-export const fileURL = (id, inline) => `${BASE}/api/files/${id}${inline ? '?inline=1' : ''}`
+export const fileURL = (id, inline) => withGuest(`${BASE}/api/files/${id}${inline ? '?inline=1' : ''}`)
 // ?v= keeps the browser's immutable cache honest if a deleted file's id is ever reused.
-export const thumbURL = f => `${BASE}/api/files/${f.id}/thumb?v=${f.created_at}`
+export const thumbURL = f => withGuest(`${BASE}/api/files/${f.id}/thumb?v=${f.created_at}`)
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
@@ -34,6 +43,7 @@ function putChunk(id, offset, blob, onProgress) {
     const x = new XMLHttpRequest()
     x.open('PUT', `${BASE}/api/uploads/${id}?offset=${offset}`)
     x.withCredentials = true
+    if (guest) x.setRequestHeader('X-Guest', guest)
     x.upload.onprogress = e => onProgress(e.loaded)
     x.onload = () => {
       let d = {}

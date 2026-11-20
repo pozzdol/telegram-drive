@@ -83,12 +83,37 @@ func (c Controller) Create(w http.ResponseWriter, r *http.Request, uid string) {
 			req.Mime = t
 		}
 	}
-	// Part files live on the server's disk until sent; a few at a time per user is plenty.
+	// The file belongs to the uploader; a guest's to the owner of the folder.
+	owner, err := models.OwnerFor(r.Context(), c.DB, uid, ref)
+	if err != nil {
+		utils.ServerErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	g := models.GuestFrom(r.Context())
+	guest, linkItem := "", any(nil)
+	if g != nil {
+		guest, linkItem = g.Session, g.ItemID
+	}
+	// Part files live on the server's disk until sent; a few at a time per user (or guest) is plenty.
 	var open int
-	c.DB.QueryRow(`SELECT count(*) FROM uploads WHERE user_id = $1 AND status IN ('receiving', 'sending')`, uid).Scan(&open)
+	c.DB.QueryRow(`SELECT count(*) FROM uploads WHERE ((guest IS NULL AND user_id = $1) OR guest = $2) AND status IN ('receiving', 'sending')`,
+		uid, guest).Scan(&open)
 	if open >= maxOpenUploads {
 		utils.WriteErr(w, http.StatusTooManyRequests, "too many uploads in progress; wait for one to finish")
 		return
+	}
+	// Guests upload into someone else's Telegram: each link has a size cap per file and in total.
+	if g != nil {
+		res, err := c.DB.Exec(`UPDATE links SET uploaded = uploaded + $1 WHERE item_id = $2 AND max_file >= $1 AND uploaded + $1 <= upload_limit`,
+			req.Size, g.ItemID)
+		if err != nil {
+			utils.ServerErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			utils.WriteErr(w, http.StatusRequestEntityTooLarge, "this link's upload limit is reached, or the file is too large for it")
+			return
+		}
 	}
 	id := rand.Text()
 	f, err := os.OpenFile(c.partPath(id), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
@@ -97,8 +122,9 @@ func (c Controller) Create(w http.ResponseWriter, r *http.Request, uid string) {
 		return
 	}
 	f.Close()
-	if _, err := c.DB.Exec(`INSERT INTO uploads (id, user_id, folder_id, name, size, mime) VALUES ($1, $2, $3, $4, $5, $6)`,
-		id, uid, ref, name, req.Size, req.Mime); err != nil {
+	if _, err := c.DB.Exec(`INSERT INTO uploads (id, user_id, folder_id, name, size, mime, guest, guest_name, link_item)
+		VALUES ($1, $2, $3, $4, $5, $6, nullif($7, ''), $8, $9)`,
+		id, owner, ref, name, req.Size, req.Mime, guest, models.GuestName(r.Context()), linkItem); err != nil {
 		os.Remove(c.partPath(id))
 		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
@@ -106,14 +132,20 @@ func (c Controller) Create(w http.ResponseWriter, r *http.Request, uid string) {
 	utils.WriteJSON(w, http.StatusCreated, map[string]any{"id": id, "chunk_size": uploadChunk})
 }
 
-func (c Controller) getUpload(uid string, id string) (u models.Upload, err error) {
-	err = c.DB.QueryRow(`SELECT id, name, size, received, sent, status, file_id, error FROM uploads WHERE id = $1 AND user_id = $2`,
-		id, uid).Scan(&u.ID, &u.Name, &u.Size, &u.Received, &u.Sent, &u.Status, &u.FileID, &u.Error)
+// getUpload finds an upload the caller started (a guest's by their guest session).
+func (c Controller) getUpload(r *http.Request, uid string, id string) (u models.Upload, err error) {
+	guest := ""
+	if g := models.GuestFrom(r.Context()); g != nil {
+		guest = g.Session
+	}
+	err = c.DB.QueryRow(`SELECT id, name, size, received, sent, status, file_id, error FROM uploads
+		WHERE id = $1 AND ((guest IS NULL AND user_id = $2) OR guest = $3)`,
+		id, uid, guest).Scan(&u.ID, &u.Name, &u.Size, &u.Received, &u.Sent, &u.Status, &u.FileID, &u.Error)
 	return u, err
 }
 
 func (c Controller) Status(w http.ResponseWriter, r *http.Request, uid string) {
-	u, err := c.getUpload(uid, r.PathValue("id"))
+	u, err := c.getUpload(r, uid, r.PathValue("id"))
 	if err != nil {
 		utils.WriteErr(w, http.StatusNotFound, "upload not found")
 		return
@@ -124,7 +156,7 @@ func (c Controller) Status(w http.ResponseWriter, r *http.Request, uid string) {
 // PUT /api/uploads/{id}?offset=N — offset must equal what the server already has, so a client
 // that lost a response just asks GET for "received" and continues from there.
 func (c Controller) Chunk(w http.ResponseWriter, r *http.Request, uid string) {
-	u, err := c.getUpload(uid, r.PathValue("id"))
+	u, err := c.getUpload(r, uid, r.PathValue("id"))
 	if err != nil {
 		utils.WriteErr(w, http.StatusNotFound, "upload not found")
 		return
@@ -177,8 +209,9 @@ func (c Controller) sendUpload(id string) {
 	var size int64
 	var folderID *string
 	var name, mimeType string
-	if err := c.DB.QueryRow(`SELECT user_id, folder_id, name, size, mime FROM uploads WHERE id = $1`, id).
-		Scan(&uid, &folderID, &name, &size, &mimeType); err != nil {
+	var guestName *string
+	if err := c.DB.QueryRow(`SELECT user_id, folder_id, name, size, mime, guest_name FROM uploads WHERE id = $1`, id).
+		Scan(&uid, &folderID, &name, &size, &mimeType, &guestName); err != nil {
 		log.Printf("upload %s: %v", id, err)
 		return
 	}
@@ -219,10 +252,10 @@ func (c Controller) sendUpload(id string) {
 		}
 		fileID := models.NewID()
 		// A folder trashed while the upload ran takes the file into the trash with it.
-		_, err = c.DB.Exec(`INSERT INTO files (id, user_id, folder_id, name, size, mime, msg_id, taken_at, trashed_at, trash_id, trashed_by)
-			SELECT $8::uuid, $1::uuid, $2::uuid, $3, $4, $5, $6, $7::bigint, d.trashed_at, d.trash_id, d.trashed_by
+		_, err = c.DB.Exec(`INSERT INTO files (id, user_id, folder_id, name, size, mime, msg_id, taken_at, trashed_at, trash_id, trashed_by, guest_name)
+			SELECT $8::uuid, $1::uuid, $2::uuid, $3, $4, $5, $6, $7::bigint, d.trashed_at, d.trash_id, d.trashed_by, $9
 			FROM (SELECT 1) one LEFT JOIN folders d ON d.id = $2::uuid`,
-			uid, folderID, name, size, mimeType, msgID, taken, fileID)
+			uid, folderID, name, size, mimeType, msgID, taken, fileID, guestName)
 		if err != nil {
 			c.TG.Delete(context.Background(), msgID) // e.g. folder deleted meanwhile; don't leave an orphan
 		} else {

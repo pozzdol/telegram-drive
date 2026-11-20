@@ -3,23 +3,26 @@ import {
   Download, FolderInput, FolderOpen, FolderPlus, HardDrive, Images, KeyRound, Link2, LogOut, Pencil, Plus, Search,
   Trash2, Unlink, Upload, UserCog, UserPlus, Users as UsersIcon, X,
 } from 'lucide-react'
-import { api, fileURL, uploadFile } from './api.js'
+import { api, fileURL, setGuest, uploadFile } from './api.js'
 import { makeVideoThumb } from './videoThumb.js'
 import { telegramAuth, telegramConfig } from './telegram.js'
 import Drive from './Drive.jsx'
 import Photos from './Photos.jsx'
 import Trash from './Trash.jsx'
 import ShareDialog from './Share.jsx'
+import GuestGate, { forgetGuest } from './Guest.jsx'
 import Lightbox from './Lightbox.jsx'
 import Users, { Avatar, PasswordDialog } from './Users.jsx'
 import { AskDialog, ListSkeleton, useTooltips, Menu, MoveDialog, Sk, UploadPanel, fmtSize, isViewable, kind } from './ui.jsx'
 
 // ---- URL state: ?view=photos | ?view=users | ?view=trash | ?view=shared | ?folder=<id> | ?q=text ----
 const VIEWS = ['photos', 'users', 'trash', 'shared']
+// /s/<token> is a public link: the page runs for a guest, inside what the link shows.
+const LINK = location.pathname.match(/^\/s\/([A-Za-z0-9_-]{8,64})\/?$/)?.[1] || ''
 const readRoute = () => {
   const p = new URLSearchParams(location.search)
   const v = p.get('view')
-  return { view: VIEWS.includes(v) ? v : 'drive', folder: p.get('folder') || '', q: p.get('q') || '' }
+  return { view: VIEWS.includes(v) && !LINK ? v : 'drive', folder: p.get('folder') || '', q: p.get('q') || '' }
 }
 const routeURL = r => {
   const p = new URLSearchParams()
@@ -53,6 +56,8 @@ export default function App() {
   const [ask, setAsk] = useState(null)
   const [moving, setMoving] = useState(null)
   const [sharing, setSharing] = useState(null) // { type, item }
+  const [link, setLink] = useState(null) // guest of a public link: { guest, link, name, file }
+  const guest = !!LINK
   const [lightbox, setLightbox] = useState(null) // { items, start }
   const [dragging, setDragging] = useState(false)
   const [view, setView] = useState(() => pref('view', 'list'))
@@ -79,6 +84,19 @@ export default function App() {
   }, [me, route.view]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const refresh = () => setVersion(v => v + 1)
+  // Guest session: started by GuestGate, dropped when the link stops working for it.
+  const enterLink = g => {
+    setGuest(g.guest)
+    setLink(g)
+    setMe({ id: '', username: g.name || 'Tamu', guest: true })
+    setAuthed(true)
+  }
+  const leaveLink = () => {
+    forgetGuest(LINK)
+    setGuest('')
+    setLink(null)
+    setAuthed(null)
+  }
   // An undo offer goes away by itself after a while; other notices stay until closed.
   useEffect(() => {
     if (!notice?.action) return
@@ -90,10 +108,11 @@ export default function App() {
 
   // Who is logged in (also the session check), then storage usage for the sidebar.
   useEffect(() => {
-    if (authed === false) return
+    if (authed === false || guest) return
     api('/api/me').then(setMe, () => {})
   }, [authed])
   useEffect(() => {
+    if (guest) return
     api('/api/usage').then(u => { setUsage(u); setAuthed(true); setOffline(false) }, e => {
       if (e.status === 401) setAuthed(false)
       // No HTTP status at all: the API could not be reached (offline, DNS, blocked).
@@ -105,13 +124,21 @@ export default function App() {
   // Folder contents or search results.
   useEffect(() => {
     if (!authed || (route.view !== 'drive' && route.view !== 'shared')) return
+    // A link to one file shows just that file.
+    if (guest && link.link.type === 'file') return setData({ path: [], folders: [], files: [link.file], role: link.link.role, key: 'file' })
     let live = true
     const url = route.view === 'shared' ? '/api/shared'
-      : route.q ? `/api/search?q=${encodeURIComponent(route.q)}` : `/api/list?folder_id=${route.folder}`
+      : route.q ? `/api/search?q=${encodeURIComponent(route.q)}` : `/api/list?folder_id=${route.folder || (guest ? link.link.item_id : '')}`
     setData(d => (d?.key === url ? d : null))
-    api(url).then(d => { if (live) setData({ path: [], ...d, key: url }) }, e => {
+    api(url).then(d => {
       if (!live) return
-      if (e.status === 401) setAuthed(false)
+      // For a guest the linked folder is the root crumb ("…" in Crumbs), not a step in the path.
+      if (guest) d.path = d.path.slice(1)
+      setData({ path: [], ...d, key: url })
+    }, e => {
+      if (!live) return
+      if (e.status === 401 && guest) leaveLink()
+      else if (e.status === 401) setAuthed(false)
       else if (e.status === 404) nav({}, true)
       else setError(e.message)
     })
@@ -133,7 +160,7 @@ export default function App() {
   // ---- actions ----
   // New folders and uploads go into the open folder when the user may add to it,
   // otherwise into their own drive.
-  const addTarget = () => (route.view === 'drive' && !route.q && editable(data?.role) ? route.folder : '')
+  const addTarget = () => (route.view === 'drive' && !route.q && editable(data?.role) ? route.folder || (guest ? link.link.item_id : '') : '')
   const newFolder = async () => {
     const name = await askUser({ title: 'Folder baru', input: true, value: 'Folder tanpa judul', confirm: 'Buat' })
     if (name) run(() => api('/api/folders', { method: 'POST', body: { name, parent_id: addTarget() } }))
@@ -154,7 +181,7 @@ export default function App() {
       const ids = items.map(x => x.item.id)
       setNotice({
         text: one ? `“${one}” dipindahkan ke sampah.` : `${items.length} item dipindahkan ke sampah.`,
-        action: 'Urungkan',
+        action: guest ? undefined : 'Urungkan',
         onAction: () => run(() => api('/api/trash/restore', { method: 'POST', body: { ids } })),
       })
       return true
@@ -186,7 +213,7 @@ export default function App() {
     // Nothing is left to restore, so it skips the trash.
     try {
       await api('/api/delete', { method: 'POST', body: { files: [f.id] } })
-      await api('/api/trash/purge', { method: 'POST', body: { ids: [f.id] } })
+      if (!guest) await api('/api/trash/purge', { method: 'POST', body: { ids: [f.id] } })
       return true
     } catch (e) { setError(e.message); return false } finally { refresh() }
   }
@@ -218,7 +245,7 @@ export default function App() {
     if (route.view === 'users') nav({}, true)
   }
   const [tgBot, setTgBot] = useState(null)
-  useEffect(() => { if (authed) telegramConfig().then(c => setTgBot(c.telegram_bot_id || null)) }, [authed])
+  useEffect(() => { if (authed && !guest) telegramConfig().then(c => setTgBot(c.telegram_bot_id || null)) }, [authed])
   const linkTelegram = async () => {
     try {
       const data = await telegramAuth(tgBot)
@@ -237,6 +264,16 @@ export default function App() {
       await api('/api/me/telegram', { method: 'DELETE' })
       setMe(m => ({ ...m, telegram_linked: false }))
     } catch (e) { setError(e.message) }
+  }
+  // A guest has no account: the menu says who they are here and offers the way out.
+  const guestMenu = e => {
+    const r = e.currentTarget.getBoundingClientRect()
+    setMenu({
+      at: { x: r.right - 220, y: r.bottom + 6 },
+      items: [
+        { label: 'Masuk dengan akun', icon: KeyRound, onSelect: () => location.assign('/') },
+      ],
+    })
   }
   const accountMenu = e => {
     const r = e.currentTarget.getBoundingClientRect()
@@ -257,6 +294,7 @@ export default function App() {
   // type null: right-click on a multi-selection; it is then the selected [{ type, item }].
   // In "Shared with me" each item carries its own role; in a folder the folder's role counts.
   const atShared = route.view === 'shared'
+  const canDownload = !guest || !link?.link.no_download || editable(data?.role)
   const itemMenu = (type, it, at) => {
     if (type === null) {
       if (atShared || !editable(data?.role)) return
@@ -277,7 +315,7 @@ export default function App() {
         type === 'folder'
           ? { label: 'Buka', icon: FolderOpen, onSelect: () => nav({ folder: it.id }) }
           : { label: 'Buka', icon: FolderOpen, onSelect: () => openFile(it, data?.files || [it]) },
-        ...(type === 'file' && !it.missing ? [{ label: 'Download', icon: Download, onSelect: () => download(it) }] : []),
+        ...(type === 'file' && !it.missing && canDownload ? [{ label: 'Download', icon: Download, onSelect: () => download(it) }] : []),
         ...(route.q ? [{ label: 'Tampilkan lokasi', icon: FolderInput, onSelect: () => nav({ folder: (type === 'file' ? it.folder_id : it.parent_id) || '' }) }] : []),
         ...(edit ? [{ label: 'Bagikan', icon: UserPlus, onSelect: () => setSharing({ type, item: it }) }] : []),
         ...(edit && !atShared ? [
@@ -358,6 +396,7 @@ export default function App() {
       </main>
     )
   }
+  if (guest && !link) return <GuestGate token={LINK} onReady={enterLink} />
   if (authed === null) {
     return (
       <div className="shell" aria-busy="true" aria-label="Memuat">
@@ -387,7 +426,12 @@ export default function App() {
     >
       <aside className="sidebar">
         <div className="brand"><HardDrive size={24} aria-hidden /> Telegram Drive</div>
-        <button className="new-btn" onClick={newMenu} aria-haspopup="menu"><Plus size={22} aria-hidden /> Baru</button>
+        {(!guest || (editable(data?.role) && link.link.type === 'folder')) && (
+          <button className="new-btn" onClick={newMenu} aria-haspopup="menu"><Plus size={22} aria-hidden /> Baru</button>
+        )}
+        {guest ? (
+          <p className="guest-note muted small">Kamu membuka link ini tanpa login. Masuk dengan akun untuk melihat drive milikmu sendiri.</p>
+        ) : <>
         <nav className="side-nav" aria-label="Bagian">
           <button aria-current={route.view === 'drive' ? 'page' : undefined} onClick={goDrive}><HardDrive size={20} aria-hidden /> Drive saya</button>
           <button aria-current={route.view === 'photos' ? 'page' : undefined} onClick={goPhotos}><Images size={20} aria-hidden /> Foto</button>
@@ -405,15 +449,18 @@ export default function App() {
             <span className="muted small">{usage.files.toLocaleString('id-ID')} file tersimpan di channel Telegram</span>
           </div>
         )}
+        </>}
       </aside>
 
       <header className="topbar">
+        {guest ? <div className="guest-title"><span className="nm">Dibagikan oleh <strong>{link.link.owner}</strong>{editable(data?.role) ? ' · kamu bisa menambah dan mengubah isi' : ''}</span></div> : (
         <form className="search" role="search" onSubmit={e => { e.preventDefault(); nav({ folder: route.folder, q: query.trim() }) }}>
           <Search size={20} aria-hidden />
           <input type="search" placeholder="Cari di Drive" aria-label="Cari di Drive" value={query} onChange={e => setQuery(e.target.value)} />
           {query && <button type="button" className="icon-btn" onClick={() => nav({ folder: route.folder })} aria-label="Hapus pencarian"><X size={18} /></button>}
         </form>
-        <button className="account-btn" onClick={accountMenu} aria-haspopup="menu"
+        )}
+        <button className="account-btn" onClick={guest ? guestMenu : accountMenu} aria-haspopup="menu"
           aria-label={me ? `Akun: ${me.username}` : 'Akun'} data-tip={me?.username}>
           {me ? <Avatar name={me.username} size={36} /> : <LogOut size={20} />}
         </button>
@@ -447,8 +494,8 @@ export default function App() {
             sort={sort}
             onView={v => { setView(v); savePref('view', v) }}
             onSort={s => { setSort(s); savePref('sort', s) }}
-            onGo={id => (id || !data?.shared ? nav({ folder: id }) : nav({ view: 'shared' }))}
-            root={atShared || data?.shared ? 'Dibagikan dengan saya' : 'Drive saya'}
+            onGo={id => (id || guest || !data?.shared ? nav({ folder: id }) : nav({ view: 'shared' }))}
+            root={guest ? link.link.name : atShared || data?.shared ? 'Dibagikan dengan saya' : 'Drive saya'}
             canEdit={!atShared && editable(data?.role)}
             onOpenFile={openFile}
             onMenu={itemMenu}
@@ -459,13 +506,13 @@ export default function App() {
         )}
       </main>
 
-      <nav className="tabbar" aria-label="Bagian">
+      {!guest && <nav className="tabbar" aria-label="Bagian">
         <button aria-current={route.view === 'drive' ? 'page' : undefined} onClick={goDrive}><HardDrive size={22} aria-hidden /> Drive</button>
         <button aria-current={route.view === 'photos' ? 'page' : undefined} onClick={goPhotos}><Images size={22} aria-hidden /> Foto</button>
         <button aria-current={route.view === 'shared' ? 'page' : undefined} onClick={() => nav({ view: 'shared' })}><UsersIcon size={22} aria-hidden /> Dibagikan</button>
         <button aria-current={route.view === 'trash' ? 'page' : undefined} onClick={() => nav({ view: 'trash' })}><Trash2 size={22} aria-hidden /> Sampah</button>
-      </nav>
-      {route.view !== 'users' && route.view !== 'trash' && <button className="fab" onClick={newMenu} aria-label="Baru" aria-haspopup="menu"><Plus size={26} /></button>}
+      </nav>}
+      {route.view !== 'users' && route.view !== 'trash' && (!guest || (editable(data?.role) && link.link.type === 'folder')) && <button className="fab" onClick={newMenu} aria-label="Baru" aria-haspopup="menu"><Plus size={26} /></button>}
 
       <input ref={inputRef} type="file" multiple hidden onChange={e => { startUploads(e.target.files); e.target.value = '' }} />
       {dragging && <div className="dropzone" aria-hidden><div><Upload size={28} /> Lepas untuk upload ke <strong>{here}</strong></div></div>}

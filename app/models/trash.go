@@ -13,7 +13,7 @@ const TrashDays = 30
 // owner. Each picked item starts its own group (trash_id = its id), restored or purged as one.
 // The caller checks that uid may delete them (editor); uid is recorded as who deleted them.
 // Items already in the trash are skipped. Returns how many files and folders were moved.
-func Trash(ctx context.Context, db *sql.DB, uid string, files, folders []string) (nf, nd int64, err error) {
+func Trash(ctx context.Context, db *sql.DB, by any, files, folders []string) (nf, nd int64, err error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, 0, err
@@ -26,14 +26,14 @@ func Trash(ctx context.Context, db *sql.DB, uid string, files, folders []string)
 		res, err := tx.Exec(`WITH RECURSIVE t(id) AS (
 				SELECT id FROM folders WHERE id = $1 AND trashed_at IS NULL
 				UNION SELECT f.id FROM folders f JOIN t ON f.parent_id = t.id WHERE f.trashed_at IS NULL
-			) UPDATE folders SET trashed_at = $3, trash_id = $1, trashed_by = $2 WHERE id IN (SELECT id FROM t)`, top, uid, now)
+			) UPDATE folders SET trashed_at = $3, trash_id = $1, trashed_by = $2 WHERE id IN (SELECT id FROM t)`, top, by, now)
 		if err != nil {
 			return 0, 0, err
 		}
 		n, _ := res.RowsAffected()
 		nd += n
 		res, err = tx.Exec(`UPDATE files SET trashed_at = $2, trash_id = $1, trashed_by = $3
-			WHERE trashed_at IS NULL AND folder_id IN (SELECT id FROM folders WHERE trash_id = $1)`, top, now, uid)
+			WHERE trashed_at IS NULL AND folder_id IN (SELECT id FROM folders WHERE trash_id = $1)`, top, now, by)
 		if err != nil {
 			return 0, 0, err
 		}
@@ -41,7 +41,7 @@ func Trash(ctx context.Context, db *sql.DB, uid string, files, folders []string)
 		nf += n
 	}
 	res, err := tx.Exec(`UPDATE files SET trashed_at = $3, trash_id = id, trashed_by = $1
-		WHERE id = ANY($2::uuid[]) AND trashed_at IS NULL`, uid, files, now)
+		WHERE id = ANY($2::uuid[]) AND trashed_at IS NULL`, by, files, now)
 	if err != nil {
 		return 0, 0, err
 	}

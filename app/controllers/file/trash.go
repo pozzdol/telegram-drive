@@ -57,7 +57,7 @@ func (c Controller) BulkTrash(w http.ResponseWriter, r *http.Request, uid string
 		}
 		return ok
 	}
-	nf, nd, err := models.Trash(r.Context(), c.DB, uid, editable("file", req.Files), editable("folder", req.Folders))
+	nf, nd, err := models.Trash(r.Context(), c.DB, models.Actor(r.Context(), uid), editable("file", req.Files), editable("folder", req.Folders))
 	if err != nil {
 		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return

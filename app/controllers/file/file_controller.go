@@ -59,6 +59,12 @@ func (c Controller) Download(w http.ResponseWriter, r *http.Request, uid string)
 	if r.URL.Query().Get("inline") == "1" && inlineSafe(f.Mime) {
 		disp = "inline"
 	}
+	// Previews (?inline=1) still work: turning downloads off only hides the download button and
+	// refuses plain downloads, it cannot stop someone saving what their browser shows.
+	if g := models.GuestFrom(r.Context()); g != nil && g.NoDownload && g.Role < models.Editor && r.URL.Query().Get("inline") != "1" {
+		utils.WriteErr(w, http.StatusForbidden, "downloads are turned off for this link")
+		return
+	}
 	w.Header().Set("Content-Type", f.Mime)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	// Even if a type slips past inlineSafe, a file opened from the API origin cannot run scripts.

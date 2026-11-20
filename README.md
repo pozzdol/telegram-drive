@@ -193,6 +193,11 @@ Authentication uses the `token` cookie set by login, or `Authorization: Bearer <
 | GET | `/api/shares/{id}` | | Who has access to a file or folder: the owner and everyone it is shared with |
 | PUT | `/api/shares/{id}` | `{"user_id", "role"}` | Share (or change the role): `viewer`, `commenter` or `editor`. Owners and editors may share |
 | DELETE | `/api/shares/{id}/{user}` | | Take access away; anyone may remove their own |
+| GET | `/api/links/{id}` | | The item's public link settings and recent access changes (editors) |
+| PUT | `/api/links/{id}` | `{"enabled"?, "role"?, "expires_at"?, "password"?, "no_download"?, "require_name"?, "max_file"?, "upload_limit"?}` | Change the public link; `password: ""` removes it |
+| POST | `/api/links/{id}/reset` | | New link address; the old one and its guests stop working |
+| GET | `/api/s/{token}` | | Public: what a link opens, and whether it needs a password or a name |
+| POST | `/api/s/{token}/session` | `{"password"?, "name"?}` | Public: opens a link; returns a guest token for the `X-Guest` header (or `?g=`) |
 | GET | `/api/trash` | | Items in the trash (the ones picked, not their contents), with `days` until they are purged |
 | POST | `/api/trash/restore` | `{"ids":[ids]}` | Put items back; one whose folder is gone or still in the trash returns to the root |
 | POST | `/api/trash/purge` | `{"ids":[ids]}` or `{"all":true}` | Delete for good: Telegram messages first, 100 per call, then the records. Items older than 30 days are purged automatically |
@@ -227,6 +232,12 @@ A file or folder can be shared with other accounts as viewer, commenter or edito
 folder covers everything inside it. Editors may upload, create folders, rename, move (only within
 the owner's folder tree), delete and share further; whatever they add stays theirs. Deleted items
 go to their owner's trash and are purged, Telegram messages included, after 30 days.
+
+Each item can also have one public link (`/s/<token>`), off by default. Anyone with it can open
+the item without an account, as viewer, commenter or editor, optionally behind a password, an
+expiry date and a required guest name. Guest uploads count against a per-link cap (2 GB per file
+and 20 GB in total by default) and belong to the owner of the folder. The owner always keeps full
+access, whatever a guest editor changes, and every access change is logged.
 
 ## Files deleted in Telegram
 

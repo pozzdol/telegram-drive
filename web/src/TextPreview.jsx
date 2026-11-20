@@ -25,7 +25,7 @@ export default function TextPreview({ file, markdown, onMissing }) {
   useEffect(() => {
     let live = true
     setState(null)
-    fetch(fileURL(file.id), { credentials: 'include', headers: { Range: `bytes=0-${LIMIT - 1}` } })
+    fetch(fileURL(file.id, true), { credentials: 'include', headers: { Range: `bytes=0-${LIMIT - 1}` } })
       .then(async r => {
         if (r.status === 410) return onMissing()
         if (!r.ok) throw new Error(`Gagal memuat file (HTTP ${r.status})`)

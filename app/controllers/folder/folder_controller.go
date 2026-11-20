@@ -23,6 +23,10 @@ func (c Controller) List(w http.ResponseWriter, r *http.Request, uid string) {
 		utils.WriteErr(w, http.StatusNotFound, err.Error())
 		return
 	}
+	guestItem := models.GuestUID // a guest sees the path from the linked folder down
+	if g := models.GuestFrom(r.Context()); g != nil {
+		guestItem = g.ItemID
+	}
 	role := models.Owner
 	if id != "" {
 		role, _ = models.Access(r.Context(), c.DB, uid, "folder", id)
@@ -42,8 +46,8 @@ func (c Controller) List(w http.ResponseWriter, r *http.Request, uid string) {
 	rows, err := c.DB.Query(`WITH RECURSIVE up(id, parent_id, name, user_id, depth) AS (
 			SELECT id, parent_id, name, user_id, 0 FROM folders WHERE id = $1
 			UNION ALL SELECT f.id, f.parent_id, f.name, f.user_id, depth + 1 FROM folders f JOIN up ON f.id = up.parent_id
-		) SELECT id, name, user_id = $2 OR EXISTS (SELECT 1 FROM shares s WHERE s.item_id = up.id AND s.user_id = $2)
-		FROM up ORDER BY depth DESC`, ref, uid)
+		) SELECT id, name, user_id = $2 OR id = $3 OR EXISTS (SELECT 1 FROM shares s WHERE s.item_id = up.id AND s.user_id = $2)
+		FROM up ORDER BY depth DESC`, ref, uid, guestItem)
 	if err != nil {
 		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
@@ -129,8 +133,14 @@ func (c Controller) Create(w http.ResponseWriter, r *http.Request, uid string) {
 		utils.WriteErr(w, http.StatusNotFound, err.Error())
 		return
 	}
+	owner, err := models.OwnerFor(r.Context(), c.DB, uid, ref)
+	if err != nil {
+		utils.ServerErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	id := models.NewID()
-	if _, err := c.DB.Exec(`INSERT INTO folders (id, user_id, parent_id, name) VALUES ($4, $1, $2, $3)`, uid, ref, name, id); err != nil {
+	if _, err := c.DB.Exec(`INSERT INTO folders (id, user_id, parent_id, name, guest_name) VALUES ($4, $1, $2, $3, $5)`,
+		owner, ref, name, id, models.GuestName(r.Context())); err != nil {
 		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}

@@ -113,7 +113,7 @@ func (c Controller) Put(w http.ResponseWriter, r *http.Request, uid string) {
 		return
 	}
 	_, err := c.DB.Exec(`INSERT INTO shares (item_id, item_type, user_id, role, created_by) VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (item_id, user_id) DO UPDATE SET role = EXCLUDED.role`, id, kind, req.UserID, role.String(), uid)
+		ON CONFLICT (item_id, user_id) DO UPDATE SET role = EXCLUDED.role`, id, kind, req.UserID, role.String(), models.Actor(r.Context(), uid))
 	if models.IsForeignKeyViolation(err) {
 		utils.WriteErr(w, http.StatusNotFound, "no such account")
 		return
@@ -122,6 +122,9 @@ func (c Controller) Put(w http.ResponseWriter, r *http.Request, uid string) {
 		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	var who string
+	c.DB.QueryRow(`SELECT username FROM users WHERE id = $1`, req.UserID).Scan(&who)
+	models.LogAccess(r.Context(), c.DB, uid, id, "membagikan ke "+who+" sebagai "+role.String())
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -140,7 +143,13 @@ func (c Controller) Delete(w http.ResponseWriter, r *http.Request, uid string) {
 		utils.WriteErr(w, http.StatusBadRequest, "invalid user id")
 		return
 	}
-	c.DB.Exec(`DELETE FROM shares WHERE item_id = $1 AND user_id = $2`, id, user)
+	var who string
+	c.DB.QueryRow(`SELECT username FROM users WHERE id = $1`, user).Scan(&who)
+	if res, _ := c.DB.Exec(`DELETE FROM shares WHERE item_id = $1 AND user_id = $2`, id, user); res != nil {
+		if n, _ := res.RowsAffected(); n > 0 {
+			models.LogAccess(r.Context(), c.DB, uid, id, "menghapus akses "+who)
+		}
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

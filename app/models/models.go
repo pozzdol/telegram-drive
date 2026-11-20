@@ -95,6 +95,9 @@ func QueryFiles(db *sql.DB, query string, args ...any) ([]File, error) {
 // else must be a folder, not in the trash, where uid has at least role min.
 func FolderRef(ctx context.Context, db *sql.DB, uid, id string, min Role) (any, error) {
 	if id == "" {
+		if GuestFrom(ctx) != nil {
+			return nil, ErrFolderNotFound // a guest has no root of their own
+		}
 		return nil, nil
 	}
 	if r, err := Access(ctx, db, uid, "folder", id); err != nil || r < min {

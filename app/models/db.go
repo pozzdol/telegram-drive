@@ -89,6 +89,47 @@ CREATE TABLE IF NOT EXISTS shares (
 	PRIMARY KEY (item_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS shares_user ON shares(user_id);
+-- Public link, one per file or folder. enabled false = "Restricted" (the link stops working).
+-- A new token (reset) and a new password log out every guest of the link.
+CREATE TABLE IF NOT EXISTS links (
+	item_id       uuid PRIMARY KEY,
+	item_type     text NOT NULL CHECK (item_type IN ('file', 'folder')),
+	token         text NOT NULL UNIQUE,
+	enabled       boolean NOT NULL DEFAULT false,
+	role          text NOT NULL DEFAULT 'viewer' CHECK (role IN ('viewer', 'commenter', 'editor')),
+	expires_at    bigint,          -- NULL = never
+	password_hash text,            -- NULL = no password
+	no_download   boolean NOT NULL DEFAULT false,
+	require_name  boolean NOT NULL DEFAULT true,
+	max_file      bigint NOT NULL DEFAULT 2147483648,  -- guest uploads: bytes per file
+	upload_limit  bigint NOT NULL DEFAULT 21474836480, -- guest uploads: bytes in total
+	uploaded      bigint NOT NULL DEFAULT 0,
+	created_by    uuid REFERENCES users(id) ON DELETE SET NULL,
+	created_at    bigint NOT NULL DEFAULT extract(epoch FROM now())::bigint
+);
+CREATE TABLE IF NOT EXISTS guest_sessions (
+	token_hash text PRIMARY KEY,
+	item_id    uuid NOT NULL,
+	link_token text NOT NULL, -- the link it was opened with; a reset link has another token
+	name       text NOT NULL DEFAULT '',
+	expires_at bigint NOT NULL
+);
+CREATE INDEX IF NOT EXISTS guest_sessions_item ON guest_sessions(item_id);
+-- Who changed access to what: shares and link settings. The owner can always see and undo it.
+CREATE TABLE IF NOT EXISTS access_log (
+	id      bigserial PRIMARY KEY,
+	item_id uuid NOT NULL,
+	at      bigint NOT NULL DEFAULT extract(epoch FROM now())::bigint,
+	actor   text NOT NULL, -- username, or "<name> (tamu)"
+	action  text NOT NULL
+);
+CREATE INDEX IF NOT EXISTS access_log_item ON access_log(item_id, id);
+-- What guests added: their typed name (they have no account), and uploads they started.
+ALTER TABLE files ADD COLUMN IF NOT EXISTS guest_name text;
+ALTER TABLE folders ADD COLUMN IF NOT EXISTS guest_name text;
+ALTER TABLE uploads ADD COLUMN IF NOT EXISTS guest text;      -- guest session token hash
+ALTER TABLE uploads ADD COLUMN IF NOT EXISTS guest_name text;
+ALTER TABLE uploads ADD COLUMN IF NOT EXISTS link_item uuid;  -- whose link quota it counts against
 `
 
 // Open connects to PostgreSQL (DATABASE_URL, e.g. postgres://user:pass@host:5432/db?sslmode=require)

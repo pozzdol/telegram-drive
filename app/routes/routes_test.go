@@ -496,3 +496,119 @@ func TestSharing(t *testing.T) {
 		t.Fatalf("%d shares left after purging", n)
 	}
 }
+
+// Public links: guests without an account see the linked folder with the link's role; the
+// owner keeps full access whatever the link settings are.
+func TestPublicLinks(t *testing.T) {
+	db := testDB(t)
+	h := New(&app.App{DB: db, UploadDir: t.TempDir(), ThumbDir: t.TempDir(), MaxUpload: 1 << 30})
+	call := func(auth, method, path, body string) (int, map[string]any) {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		if strings.HasPrefix(body, "{") {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		if k, v, ok := strings.Cut(auth, ":"); ok {
+			req.Header.Set(k, v)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		var out map[string]any
+		json.Unmarshal(rec.Body.Bytes(), &out)
+		return rec.Code, out
+	}
+	expect := func(want, got int, what string) {
+		t.Helper()
+		if got != want {
+			t.Fatalf("%s: want %d, got %d", what, want, got)
+		}
+	}
+	call("", "POST", "/api/auth/register", `{"username":"ayah","password":"rahasia123"}`)
+	_, out := call("", "POST", "/api/auth/login", `{"username":"ayah","password":"rahasia123"}`)
+	a := "Authorization:Bearer " + out["token"].(string)
+	_, out = call(a, "POST", "/api/folders", `{"name":"Pernikahan"}`)
+	p := out["id"].(string)
+	_, out = call(a, "POST", "/api/folders", `{"name":"Akad","parent_id":"`+p+`"}`)
+	q := out["id"].(string)
+
+	code, _ := call("", "GET", "/api/s/nope", "")
+	expect(404, code, "unknown link")
+	code, out = call(a, "PUT", "/api/links/"+p, `{"enabled":true,"role":"viewer"}`)
+	expect(200, code, "open the link")
+	token := out["token"].(string)
+	code, out = call("", "GET", "/api/s/"+token, "")
+	expect(200, code, "link info")
+	if out["name"] != "Pernikahan" || out["password"] != false || out["require_name"] != false || out["owner"] != "ayah" {
+		t.Fatalf("link info: %v", out)
+	}
+	session := func(body string) (int, string) {
+		code, out := call("", "POST", "/api/s/"+token+"/session", body)
+		g, _ := out["guest"].(string)
+		return code, "X-Guest:" + g
+	}
+	_, g := session(`{}`)
+	code, out = call(g, "GET", "/api/list?folder_id="+q, "")
+	expect(200, code, "guest lists a subfolder")
+	if p := out["path"].([]any); len(p) != 2 || out["role"] != "viewer" {
+		t.Fatalf("guest path should start at the linked folder: %v", out)
+	}
+	code, _ = call(g, "GET", "/api/list", "")
+	expect(404, code, "guest lists the owner's root")
+	code, _ = call(g, "POST", "/api/folders", `{"name":"x","parent_id":"`+p+`"}`)
+	expect(404, code, "viewer guest creates a folder")
+	code, _ = call(g, "GET", "/api/shared", "")
+	expect(401, code, "guest opens a logged-in page")
+
+	// Editor link with a password and a name: old guests must open it again.
+	call(a, "PUT", "/api/links/"+p, `{"role":"editor","password":"kunci","require_name":true,"max_file":100,"upload_limit":120}`)
+	code, _ = call(g, "GET", "/api/list?folder_id="+p, "")
+	expect(401, code, "guest after the password changed")
+	code, _ = session(`{"password":"salah","name":"Budi"}`)
+	expect(403, code, "wrong link password")
+	code, _ = session(`{"password":"kunci"}`)
+	expect(400, code, "no name")
+	code, g = session(`{"password":"kunci","name":"Budi"}`)
+	expect(200, code, "open with password and name")
+	code, out = call(g, "POST", "/api/folders", `{"name":"Dari Budi","parent_id":"`+p+`"}`)
+	expect(201, code, "editor guest creates a folder")
+	r := out["id"].(string)
+	var owner, guestName string
+	db.QueryRow(`SELECT u.username, f.guest_name FROM folders f JOIN users u ON u.id = f.user_id WHERE f.id = $1`, r).Scan(&owner, &guestName)
+	if owner != "ayah" || guestName != "Budi" {
+		t.Fatalf("guest folder: owner %q, guest %q", owner, guestName)
+	}
+	code, _ = call(g, "POST", "/api/uploads", `{"name":"a.jpg","size":200,"folder_id":"`+p+`"}`)
+	expect(413, code, "guest file over the per-file cap")
+	code, _ = call(g, "POST", "/api/uploads", `{"name":"a.jpg","size":80,"folder_id":"`+p+`"}`)
+	expect(201, code, "guest upload")
+	code, _ = call(g, "POST", "/api/uploads", `{"name":"b.jpg","size":80,"folder_id":"`+p+`"}`)
+	expect(413, code, "guest upload over the link total")
+	code, _ = call(g, "POST", "/api/move", `{"folders":["`+q+`"],"to":""}`)
+	expect(404, code, "guest moves a folder out of the link")
+	_, out = call(g, "POST", "/api/move", `{"folders":["`+q+`"],"to":"`+r+`"}`)
+	if out["folders"].(float64) != 1 {
+		t.Fatalf("guest move inside the link: %v", out)
+	}
+	_, out = call(g, "POST", "/api/delete", `{"folders":["`+q+`"]}`)
+	if out["folders"].(float64) != 1 {
+		t.Fatalf("guest delete: %v", out)
+	}
+	_, out = call(a, "GET", "/api/trash", "")
+	if len(out["items"].([]any)) != 1 {
+		t.Fatalf("the guest's delete should be in the owner's trash: %v", out)
+	}
+
+	// A guest editor may change the link, even shut it; the owner is never locked out.
+	code, _ = call(g, "PUT", "/api/links/"+p, `{"enabled":false}`)
+	expect(200, code, "guest restricts the link")
+	code, _ = call(g, "GET", "/api/list?folder_id="+p, "")
+	expect(401, code, "guest after the link was restricted")
+	code, _ = call(a, "GET", "/api/list?folder_id="+p, "")
+	expect(200, code, "owner after the link was restricted")
+	_, out = call(a, "PUT", "/api/links/"+p, `{"enabled":true,"password":""}`)
+	if len(out["log"].([]any)) < 3 || out["password"] != false {
+		t.Fatalf("access log or password: %v", out)
+	}
+	call(a, "POST", "/api/links/"+p+"/reset", "")
+	code, _ = call("", "GET", "/api/s/"+token, "")
+	expect(404, code, "old link after reset")
+}

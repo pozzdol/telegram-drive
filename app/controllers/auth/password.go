@@ -93,3 +93,7 @@ func userForToken(db *sql.DB, tok string) (string, error) {
 		hashToken(tok), time.Now().Unix()).Scan(&uid)
 	return uid, err
 }
+
+// HashLinkPassword hashes a public link's password. Shorter than an account password is fine:
+// wrong guesses are rate limited per IP, and a link password only guards one item.
+func HashLinkPassword(pw string) (string, error) { return hashPassword(pw) }

@@ -555,7 +555,7 @@ dialog.sheet input {
   background: var(--color-paper); font-size: var(--text-lg);
 }
 .pw-field { position: relative; }
-.pw-field input { padding-right: 48px; }
+.pw-field input { width: 100%; padding-right: 48px; }
 .pw-field .icon-btn { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); }
 dialog.sheet input:focus { outline: 2px solid var(--color-focus); outline-offset: -1px; border-color: transparent; }
 dialog.sheet footer { display: flex; justify-content: flex-end; gap: var(--space-2xs); margin-top: var(--space-md); }
@@ -736,3 +736,25 @@ dialog.share { width: min(520px, calc(100vw - 24px)); }
 .share-people li { display: flex; align-items: center; gap: var(--space-sm); min-height: 52px; }
 .share-who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 .crumbs button:first-child { max-width: none; } /* the root ("Drive saya", "Dibagikan dengan saya") is short fixed text: never cut */
+.link-sec { margin: var(--space-sm) 0; padding-top: var(--space-xs); border-top: 1px solid var(--color-rule); }
+.link-row { display: flex; align-items: center; gap: var(--space-sm); min-height: 52px; }
+.link-ic { display: grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: 50%; background: var(--color-paper-3); color: var(--color-ink-2); }
+.link-ic.on { background: var(--color-accent-soft); color: var(--color-accent-soft-ink); }
+.link-main { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.link-main .dropdown { margin-left: calc(var(--space-xs) * -1); font-weight: 600; }
+.link-copy { display: flex; gap: var(--space-xs); margin: var(--space-xs) 0; }
+dialog.sheet .link-copy input, dialog.sheet .link-pw input { flex: 1; min-width: 0; height: 40px; font-size: var(--text-sm); }
+.link-more { margin-left: calc(var(--space-sm) * -1); }
+.link-settings { display: flex; flex-direction: column; gap: var(--space-xs); margin-top: var(--space-xs); padding: var(--space-sm); border-radius: var(--radius-md); background: var(--color-paper-2); }
+.link-field { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2xs) var(--space-sm); min-height: 40px; font-size: var(--text-sm); }
+.link-pw { display: flex; gap: var(--space-2xs); flex: 1 1 220px; }
+.link-pw-set { display: flex; align-items: center; gap: var(--space-xs); }
+.link-log > .btn { margin-left: calc(var(--space-sm) * -1); }
+.link-log ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2xs); font-size: var(--text-sm); }
+
+/* ---- public link (guest) ---- */
+.guest-note { padding: var(--space-xs) var(--space-sm); line-height: 1.5; }
+.guest-title { flex: 1; min-width: 0; display: flex; align-items: center; height: 48px; padding: 0 var(--space-sm); font-size: var(--text-sm); color: var(--color-ink-2); }
+.guest-title .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.guest-name { overflow-wrap: anywhere; }
+.guest-mark { display: grid; place-items: center; }

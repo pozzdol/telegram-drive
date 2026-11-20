@@ -1,6 +1,6 @@
 // Video previews made in the browser: it already decodes every codec it can play,
 // so the server needs no ffmpeg. A frame is drawn to a canvas and stored as the file's JPEG thumb.
-import { ApiError } from './api.js'
+import { ApiError, withGuest } from './api.js'
 
 const BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
 const SIZE = 480 // same long edge as the server's image thumbs
@@ -49,7 +49,7 @@ export function makeVideoThumb(fileId, src) {
   tried.add(fileId)
   const job = queue.then(async () => {
     const blob = await videoFrame(src)
-    const res = await fetch(`${BASE}/api/files/${fileId}/thumb`, {
+    const res = await fetch(withGuest(`${BASE}/api/files/${fileId}/thumb`), {
       method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'image/jpeg' }, body: blob,
     })
     if (!res.ok) throw new ApiError(res.status, `HTTP ${res.status}`)

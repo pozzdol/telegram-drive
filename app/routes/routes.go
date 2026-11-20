@@ -22,6 +22,8 @@ func New(a *app.App) http.Handler {
 	userC := user.Controller{App: a}
 	shareC := share.Controller{App: a}
 	secure, admin := authC.Secure, authC.Admin
+	// Also open to guests of a public link, within what the link shows (see models.Access).
+	guestOK := authC.SecureOrGuest
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
@@ -46,26 +48,26 @@ func New(a *app.App) http.Handler {
 	mux.HandleFunc("DELETE /api/admin/users/{id}", admin(userC.Delete))
 
 	// Folders
-	mux.HandleFunc("GET /api/list", secure(folderC.List))
-	mux.HandleFunc("POST /api/folders", secure(folderC.Create))
-	mux.HandleFunc("PATCH /api/folders/{id}", secure(folderC.Update))
+	mux.HandleFunc("GET /api/list", guestOK(folderC.List))
+	mux.HandleFunc("POST /api/folders", guestOK(folderC.Create))
+	mux.HandleFunc("PATCH /api/folders/{id}", guestOK(folderC.Update))
 	mux.HandleFunc("GET /api/search", secure(folderC.Search))
 
 	// Uploads (chunked)
-	mux.HandleFunc("POST /api/uploads", secure(uploadC.Create))
-	mux.HandleFunc("PUT /api/uploads/{id}", secure(uploadC.Chunk))
-	mux.HandleFunc("GET /api/uploads/{id}", secure(uploadC.Status))
+	mux.HandleFunc("POST /api/uploads", guestOK(uploadC.Create))
+	mux.HandleFunc("PUT /api/uploads/{id}", guestOK(uploadC.Chunk))
+	mux.HandleFunc("GET /api/uploads/{id}", guestOK(uploadC.Status))
 
 	// Files
-	mux.HandleFunc("GET /api/files/{id}", secure(fileC.Download)) // also serves HEAD
-	mux.HandleFunc("GET /api/files/{id}/thumb", secure(fileC.Thumb))
-	mux.HandleFunc("PUT /api/files/{id}/thumb", secure(fileC.PutThumb))
-	mux.HandleFunc("POST /api/files/{id}/check", secure(fileC.Check)) // still in Telegram?
+	mux.HandleFunc("GET /api/files/{id}", guestOK(fileC.Download)) // also serves HEAD
+	mux.HandleFunc("GET /api/files/{id}/thumb", guestOK(fileC.Thumb))
+	mux.HandleFunc("PUT /api/files/{id}/thumb", guestOK(fileC.PutThumb))
+	mux.HandleFunc("POST /api/files/{id}/check", guestOK(fileC.Check)) // still in Telegram?
 	mux.HandleFunc("GET /api/media", secure(fileC.Media))
 	mux.HandleFunc("GET /api/usage", secure(fileC.Usage))
-	mux.HandleFunc("PATCH /api/files/{id}", secure(fileC.Update))
-	mux.HandleFunc("POST /api/delete", secure(fileC.BulkTrash)) // into the trash; folders with everything inside
-	mux.HandleFunc("POST /api/move", secure(fileC.BulkMove))    // several files/folders into one folder
+	mux.HandleFunc("PATCH /api/files/{id}", guestOK(fileC.Update))
+	mux.HandleFunc("POST /api/delete", guestOK(fileC.BulkTrash)) // into the trash; folders with everything inside
+	mux.HandleFunc("POST /api/move", guestOK(fileC.BulkMove))    // several files/folders into one folder
 
 	// Sharing with other accounts
 	mux.HandleFunc("GET /api/people", secure(shareC.People))
@@ -73,6 +75,13 @@ func New(a *app.App) http.Handler {
 	mux.HandleFunc("GET /api/shares/{id}", secure(shareC.List))
 	mux.HandleFunc("PUT /api/shares/{id}", secure(shareC.Put))
 	mux.HandleFunc("DELETE /api/shares/{id}/{user}", secure(shareC.Delete))
+
+	// Public links
+	mux.HandleFunc("GET /api/s/{token}", authC.LinkInfo)
+	mux.HandleFunc("POST /api/s/{token}/session", authC.LinkSession)
+	mux.HandleFunc("GET /api/links/{id}", guestOK(shareC.GetLink))
+	mux.HandleFunc("PUT /api/links/{id}", guestOK(shareC.PutLink))
+	mux.HandleFunc("POST /api/links/{id}/reset", guestOK(shareC.ResetLink))
 
 	// Trash
 	mux.HandleFunc("GET /api/trash", secure(fileC.TrashList))
@@ -101,7 +110,7 @@ func cors(origin string, next http.Handler) http.Handler {
 			h.Set("Access-Control-Expose-Headers", "Content-Range") // lets a preview tell it got only part of the file
 			if r.Method == http.MethodOptions {
 				h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE")
-				h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Range") // Range: text previews read only the start
+				h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Range, X-Guest") // Range: text previews read only the start
 				h.Set("Access-Control-Max-Age", "86400")
 				w.WriteHeader(http.StatusNoContent)
 				return

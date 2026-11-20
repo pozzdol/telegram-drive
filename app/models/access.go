@@ -61,7 +61,8 @@ func Access(ctx context.Context, db *sql.DB, uid, kind, id string) (Role, error)
 	if trashed {
 		return None, ErrNoAccess
 	}
-	if owner == uid {
+	g := GuestFrom(ctx)
+	if owner == uid && g == nil {
 		return Owner, nil
 	}
 	best := None
@@ -86,6 +87,15 @@ func Access(ctx context.Context, db *sql.DB, uid, kind, id string) (Role, error)
 		if err := rows.Err(); err != nil {
 			return None, err
 		}
+	}
+	if g != nil {
+		// A guest sees the linked item and whatever is inside it, with the link's role.
+		for _, x := range ids {
+			if x == g.ItemID {
+				return g.Role, nil
+			}
+		}
+		return None, ErrNoAccess
 	}
 	rows, err := db.QueryContext(ctx, `SELECT role FROM shares WHERE user_id = $1 AND item_id = ANY($2::uuid[])`, uid, ids)
 	if err != nil {
@@ -141,6 +151,9 @@ func CanMove(ctx context.Context, db *sql.DB, uid, kind, id, target string) erro
 	if r == Owner {
 		return nil
 	}
+	if GuestFrom(ctx) != nil && target == "" {
+		return ErrFolderNotFound // a guest has no drive of their own
+	}
 	from, err := TreeOwner(ctx, db, kind, id)
 	if err != nil {
 		return err
@@ -155,4 +168,18 @@ func CanMove(ctx context.Context, db *sql.DB, uid, kind, id, target string) erro
 		return ErrNoAccess
 	}
 	return nil
+}
+
+// LogAccess records a change to who can open an item (shares, link settings).
+func LogAccess(ctx context.Context, db *sql.DB, uid, item, action string) {
+	actor := "Tamu"
+	if g := GuestFrom(ctx); g != nil {
+		if g.Name != "" {
+			actor = g.Name
+		}
+		actor += " (tamu)"
+	} else {
+		db.QueryRowContext(ctx, `SELECT username FROM users WHERE id = $1`, uid).Scan(&actor)
+	}
+	db.ExecContext(ctx, `INSERT INTO access_log (item_id, actor, action) VALUES ($1, $2, $3)`, item, actor, action)
 }
