@@ -82,18 +82,16 @@ Every answer can also come from an environment variable (`TD_API_ID`, `TD_API_HA
 
 ## Features
 
-| | |
-| --- | --- |
-| **Drive** | Folders, list and grid views, sorting, search, drag-and-drop upload, rename, move, right-click menus. Select with Ctrl/Cmd+A, Shift-click, a drag box, or a long press, then move or delete many items at once. Big folders load 50 items at a time as you scroll. |
-| **Photos** | Every photo and video in one timeline, grouped by the day it was taken (EXIF), with infinite scroll. |
-| **Viewer** | Zoom, pan, rotate and flip images; a video and audio player with its own controls; Markdown and text previews. The back button closes it, as on Google Drive. |
-| **Big files** | Resumable uploads in chunks, up to 2 GB per file (4 GB with Telegram Premium). Videos stream and seek. |
-| **Sharing** | Share a file or folder with family accounts as viewer, commenter or editor. A folder share covers everything inside it. |
-| **Public links** | One link per item, off by default: role, password, expiry date, guest name, downloads off, and a cap on guest uploads. The owner keeps full access and every change is logged. |
-| **Comments** | On any file, by owners, editors, commenters and link guests. The owner gets a Telegram message when someone comments. |
-| **Trash** | Deleted items wait 30 days, can be previewed and restored, and only then leave Telegram. |
-| **Accounts** | Private drives per person, no public sign-up, an admin page, optional *Log in with Telegram*. |
-| **Housekeeping** | Notices files deleted in Telegram itself, previews videos without ffmpeg, keeps uploads safe across restarts. |
+- **Drive.** Folders, list and grid views, sorting, search, drag-and-drop upload, rename, move, right-click menus. Select with Ctrl/Cmd+A, Shift-click, a drag box, or a long press, then move or delete many items at once. Big folders load 50 items at a time as you scroll.
+- **Photos.** Every photo and video in one timeline, grouped by the day it was taken (EXIF), with infinite scroll.
+- **Viewer.** Zoom, pan, rotate and flip images; a video and audio player with its own controls; Markdown and text previews. The back button closes it, as on Google Drive.
+- **Big files.** Resumable uploads in chunks, up to 2 GB per file (4 GB with Telegram Premium). Videos stream and seek.
+- **Sharing.** Share a file or folder with family accounts as viewer, commenter or editor. A folder share covers everything inside it.
+- **Public links.** One link per item, off by default: role, password, expiry date, guest name, downloads off, and a cap on guest uploads. The owner keeps full access and every change is logged.
+- **Comments.** On any file, by owners, editors, commenters and link guests. The owner gets a Telegram message when someone comments.
+- **Trash.** Deleted items wait 30 days, can be previewed and restored, and only then leave Telegram.
+- **Accounts.** Private drives per person, no public sign-up, an admin page, optional *Log in with Telegram*.
+- **Housekeeping.** Notices files deleted in Telegram itself, previews videos without ffmpeg, keeps uploads safe across restarts.
 
 ## How it works
 
