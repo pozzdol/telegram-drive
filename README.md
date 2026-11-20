@@ -1,34 +1,21 @@
-<p align="center">
-  <img src="docs/logo.svg" width="84" alt="">
-</p>
-
-<h1 align="center">Telegram Drive</h1>
-
-<p align="center">
-  A family cloud drive that keeps every file in your own Telegram account.<br>
-  Google Drive on the outside, a private Telegram channel underneath.
-</p>
-
-<p align="center">
-  <code>curl -fsSL https://raw.githubusercontent.com/pozzdol/telegram-drive/main/install.sh | sudo bash</code>
-</p>
-
-<p align="center">
-  <a href="#install">Install</a> ·
-  <a href="#features">Features</a> ·
-  <a href="#how-it-works">How it works</a> ·
-  <a href="#faq">FAQ</a> ·
-  <a href="#documentation">Docs</a>
-</p>
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/banner-dark.webp">
+    <img src="docs/banner-light.webp" width="880" alt="Telegram Drive: your family's drive, kept in your own Telegram. A channel of file messages becomes folders and photos.">
+  </picture>
+</h1>
 
 <p align="center">
   <a href="https://github.com/pozzdol/telegram-drive/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/pozzdol/telegram-drive/ci.yml?branch=main&style=flat-square&label=CI"></a>
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue?style=flat-square"></a>
   <img alt="Go" src="https://img.shields.io/github/go-mod/go-version/pozzdol/telegram-drive?style=flat-square">
-  <img alt="Self-hosted" src="https://img.shields.io/badge/self--hosted-one%20binary-5cc1e8?style=flat-square">
 </p>
 
----
+Install on a fresh Debian or Ubuntu server:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/pozzdol/telegram-drive/main/install.sh | sudo bash
+```
 
 **Telegram Drive** is a self-hosted drive for a family or a small team. Upload, browse, preview and share
 files in a web app that feels like Google Drive, with a Google Photos-style timeline for pictures. The bytes go
@@ -52,7 +39,7 @@ binary serves the app and the API, and the installer sets everything up with one
   </tr>
 </table>
 
-The interface is in Indonesian. It works on phones too, with a bottom tab bar and touch gestures.
+The interface is in Indonesian. It works on phones too, with a bottom tab bar, pinch to zoom and a long press to select.
 
 ## Install
 
@@ -184,6 +171,3 @@ Telegram session.
 ## License
 
 [MIT](LICENSE)
-
-<hr>
-<p align="center"><i>Your files, your account, your server.</i></p>
