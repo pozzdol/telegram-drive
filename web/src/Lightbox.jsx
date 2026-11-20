@@ -1,19 +1,22 @@
 // Full-screen viewer for photos, videos and audio, with prev/next, keys and swipe.
 import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import {
-  ArrowLeft, ChevronLeft, ChevronRight, Download, FlipHorizontal2, FlipVertical2, Info, RotateCcw, RotateCw,
+  ArrowLeft, ChevronLeft, ChevronRight, Download, FlipHorizontal2, MessageSquare, FlipVertical2, Info, RotateCcw, RotateCw,
   Trash2, TriangleAlert, ZoomIn, ZoomOut,
 } from 'lucide-react'
 import { api, fileURL, thumbURL } from './api.js'
 import { fmtDate, fmtDateTime, fmtSize, hasThumb, kind, textKind, useModal } from './ui.jsx'
 import Player from './Player.jsx'
+import Comments from './Comments.jsx'
 // Markdown libraries load only when a text file is opened.
 const TextPreview = lazy(() => import('./TextPreview.jsx'))
 
-export default function Lightbox({ items, start, onClose, onDelete, onMissing }) {
+export default function Lightbox({ items, start, onClose, onDelete, onMissing, onChanged, canDownload = true }) {
   const ref = useModal()
   const [i, setI] = useState(start)
-  const [info, setInfo] = useState(false)
+  const [side, setSide] = useState(null) // 'info' | 'comments'
+  const toggle = p => setSide(s => (s === p ? null : p))
+  const [counts, setCounts] = useState({}) // comment counts seen in the panel, newer than items
   const swipe = useRef(null)
   const [gone, setGone] = useState(() => new Set(items.filter(x => x.missing).map(x => x.id)))
   // The image or video failed: ask whether the message still exists in Telegram.
@@ -50,6 +53,7 @@ export default function Lightbox({ items, start, onClose, onDelete, onMissing })
       className="lightbox"
       onClose={onClose}
       onKeyDown={e => {
+        if (e.target.closest?.('textarea, input')) return // typing a comment
         if (e.key === 'ArrowLeft') go(-1)
         if (e.key === 'ArrowRight') go(1)
       }}
@@ -57,8 +61,11 @@ export default function Lightbox({ items, start, onClose, onDelete, onMissing })
       <header className="lb-bar">
         <button className="icon-btn" onClick={() => ref.current.close()} aria-label="Kembali"><ArrowLeft size={22} /></button>
         <span className="lb-name" data-tip={f.name} data-tip-overflow>{f.name}</span>
-        <button className="icon-btn" onClick={() => setInfo(v => !v)} aria-label="Info" aria-pressed={info}><Info size={20} /></button>
-        <a className="icon-btn" href={fileURL(f.id)} aria-label="Download"><Download size={20} /></a>
+        <button className="icon-btn lb-cmt-btn" onClick={() => toggle('comments')} aria-label={`Komentar (${counts[f.id] ?? f.comments ?? 0})`} aria-pressed={side === 'comments'} data-tip="Komentar">
+          <MessageSquare size={20} />{(counts[f.id] ?? f.comments) > 0 && <span className="lb-cmt-n">{counts[f.id] ?? f.comments}</span>}
+        </button>
+        <button className="icon-btn" onClick={() => toggle('info')} aria-label="Info" aria-pressed={side === 'info'}><Info size={20} /></button>
+        {canDownload && <a className="icon-btn" href={fileURL(f.id)} aria-label="Download"><Download size={20} /></a>}
         {onDelete && <button className="icon-btn" onClick={() => onDelete(f)} aria-label="Pindahkan ke sampah" data-tip="Pindahkan ke sampah"><Trash2 size={20} /></button>}
       </header>
 
@@ -97,7 +104,8 @@ export default function Lightbox({ items, start, onClose, onDelete, onMissing })
       {i > 0 && <button className="lb-nav prev" onClick={() => go(-1)} aria-label="Sebelumnya"><ChevronLeft size={28} /></button>}
       {i < items.length - 1 && <button className="lb-nav next" onClick={() => go(1)} aria-label="Berikutnya"><ChevronRight size={28} /></button>}
 
-      {info && (
+      {side === 'comments' && <Comments file={f} onChanged={onChanged} onCount={n => setCounts(c => ({ ...c, [f.id]: n }))} />}
+      {side === 'info' && (
         <aside className="lb-info" aria-label="Info file">
           <dl>
             <dt>Nama</dt><dd>{f.name}</dd>

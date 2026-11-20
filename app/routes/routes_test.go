@@ -612,3 +612,92 @@ func TestPublicLinks(t *testing.T) {
 	code, _ = call("", "GET", "/api/s/"+token, "")
 	expect(404, code, "old link after reset")
 }
+
+// Comments: commenters and above may write; authors and editors may delete; guests too.
+func TestComments(t *testing.T) {
+	db := testDB(t)
+	h := New(&app.App{DB: db, UploadDir: t.TempDir(), ThumbDir: t.TempDir(), MaxUpload: 1 << 30})
+	call := func(auth, method, path, body string) (int, map[string]any) {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		if strings.HasPrefix(body, "{") {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		if k, v, ok := strings.Cut(auth, ":"); ok {
+			req.Header.Set(k, v)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		var out map[string]any
+		json.Unmarshal(rec.Body.Bytes(), &out)
+		return rec.Code, out
+	}
+	expect := func(want, got int, what string) {
+		t.Helper()
+		if got != want {
+			t.Fatalf("%s: want %d, got %d", what, want, got)
+		}
+	}
+	login := func(name string) string {
+		_, out := call("", "POST", "/api/auth/login", `{"username":"`+name+`","password":"rahasia123"}`)
+		return "Authorization:Bearer " + out["token"].(string)
+	}
+	call("", "POST", "/api/auth/register", `{"username":"ayah","password":"rahasia123"}`)
+	a := login("ayah")
+	_, out := call(a, "POST", "/api/admin/users", `{"username":"ibu","password":"rahasia123"}`)
+	idB := out["id"].(string)
+	b := login("ibu")
+	const f = "0190a000-0000-7000-8000-0000000000c1"
+	if _, err := db.Exec(`INSERT INTO files (id, user_id, name, size, mime, msg_id) SELECT $1::uuid, id, 'foto.jpg', 10, 'image/jpeg', 1 FROM users WHERE username = 'ayah'`, f); err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/files/" + f + "/comments"
+
+	code, _ := call(b, "GET", path, "")
+	expect(404, code, "comments without access")
+	call(a, "PUT", "/api/shares/"+f, `{"user_id":"`+idB+`","role":"viewer"}`)
+	code, out = call(b, "GET", path, "")
+	if code != 200 || out["can_comment"] != false {
+		t.Fatalf("viewer reads comments: %d %v", code, out)
+	}
+	code, _ = call(b, "POST", path, `{"body":"bagus"}`)
+	expect(404, code, "viewer comments")
+	call(a, "PUT", "/api/shares/"+f, `{"user_id":"`+idB+`","role":"commenter"}`)
+	code, _ = call(b, "POST", path, `{"body":"   "}`)
+	expect(400, code, "empty comment")
+	code, out = call(b, "POST", path, `{"body":"Fotonya bagus!"}`)
+	expect(201, code, "commenter comments")
+	mine := out["id"].(string)
+	code, out = call(a, "POST", path, `{"body":"Terima kasih"}`)
+	expect(201, code, "owner comments")
+	theirs := out["id"].(string)
+
+	_, out = call(a, "GET", "/api/list", "")
+	if fs := out["files"].([]any); fs[0].(map[string]any)["comments"].(float64) != 2 {
+		t.Fatalf("comment count in the list: %v", fs)
+	}
+	_, out = call(b, "GET", path, "")
+	cs := out["comments"].([]any)
+	if len(cs) != 2 || cs[0].(map[string]any)["author"] != "ibu" || cs[0].(map[string]any)["mine"] != true || cs[1].(map[string]any)["can_delete"] != false {
+		t.Fatalf("comments as seen by the commenter: %v", cs)
+	}
+	code, _ = call(b, "DELETE", "/api/comments/"+theirs, "")
+	expect(404, code, "commenter deletes the owner's comment")
+	code, _ = call(a, "DELETE", "/api/comments/"+mine, "")
+	expect(204, code, "owner deletes someone's comment")
+
+	// A guest of a commenter link writes under their name and may delete only their own.
+	_, out = call(a, "PUT", "/api/links/"+f, `{"enabled":true,"role":"commenter"}`)
+	_, out = call("", "POST", "/api/s/"+out["token"].(string)+"/session", `{"name":"Budi"}`)
+	g := "X-Guest:" + out["guest"].(string)
+	code, out = call(g, "POST", path, `{"body":"Selamat ya"}`)
+	expect(201, code, "guest comments")
+	gid := out["id"].(string)
+	_, out = call(a, "GET", path, "")
+	if cs := out["comments"].([]any); cs[len(cs)-1].(map[string]any)["author"] != "Budi" || cs[len(cs)-1].(map[string]any)["guest"] != true {
+		t.Fatalf("guest comment: %v", cs)
+	}
+	code, _ = call(g, "DELETE", "/api/comments/"+theirs, "")
+	expect(404, code, "guest deletes the owner's comment")
+	code, _ = call(g, "DELETE", "/api/comments/"+gid, "")
+	expect(204, code, "guest deletes their own comment")
+}

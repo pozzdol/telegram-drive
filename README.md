@@ -198,6 +198,9 @@ Authentication uses the `token` cookie set by login, or `Authorization: Bearer <
 | POST | `/api/links/{id}/reset` | | New link address; the old one and its guests stop working |
 | GET | `/api/s/{token}` | | Public: what a link opens, and whether it needs a password or a name |
 | POST | `/api/s/{token}/session` | `{"password"?, "name"?}` | Public: opens a link; returns a guest token for the `X-Guest` header (or `?g=`) |
+| GET | `/api/files/{id}/comments` | | Comments on a file, and whether you may write one |
+| POST | `/api/files/{id}/comments` | `{"body"}` | Comment (commenter role or higher, guests too); the owner gets a Telegram message from the bot |
+| DELETE | `/api/comments/{id}` | | Delete a comment: its author, or an editor of the file |
 | GET | `/api/trash` | | Items in the trash (the ones picked, not their contents), with `days` until they are purged |
 | POST | `/api/trash/restore` | `{"ids":[ids]}` | Put items back; one whose folder is gone or still in the trash returns to the root |
 | POST | `/api/trash/purge` | `{"ids":[ids]}` or `{"all":true}` | Delete for good: Telegram messages first, 100 per call, then the records. Items older than 30 days are purged automatically |
@@ -238,6 +241,10 @@ the item without an account, as viewer, commenter or editor, optionally behind a
 expiry date and a required guest name. Guest uploads count against a per-link cap (2 GB per file
 and 20 GB in total by default) and belong to the owner of the folder. The owner always keeps full
 access, whatever a guest editor changes, and every access change is logged.
+
+Commenters, editors and the owner can comment on files. When someone else comments, the file's
+owner gets a message from the login bot, if they linked Telegram and allowed the bot to write to
+them (the login popup asks; accounts linked earlier can link again, or send /start to the bot).
 
 ## Files deleted in Telegram
 

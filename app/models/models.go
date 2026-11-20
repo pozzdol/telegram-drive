@@ -28,6 +28,7 @@ type File struct {
 	TakenAt   *int64  `json:"taken_at"`        // when a photo was taken (EXIF), null if unknown
 	Missing   bool    `json:"missing"`         // the message was deleted in Telegram; only the record is left
 	Shared    bool    `json:"shared"`          // shared with at least one other account
+	Comments  int     `json:"comments"`        // how many comments it has
 	Owner     string  `json:"owner,omitempty"` // in "Shared with me": who it belongs to
 	Role      string  `json:"role,omitempty"`  // in "Shared with me": what the caller may do
 }
@@ -47,7 +48,8 @@ var ErrFolderNotFound = errors.New("folder not found")
 
 // FileColumns is the SELECT list matching File; QueryFiles scans rows of exactly these columns.
 const FileColumns = `id, folder_id, name, size, mime, created_at, taken_at, missing_at IS NOT NULL,
-	EXISTS (SELECT 1 FROM shares WHERE shares.item_id = files.id)`
+	EXISTS (SELECT 1 FROM shares WHERE shares.item_id = files.id),
+	(SELECT count(*) FROM comments WHERE comments.file_id = files.id)`
 
 // FolderColumns is the SELECT list matching Folder, for QueryFolders.
 const FolderColumns = `id, parent_id, name, created_at, EXISTS (SELECT 1 FROM shares WHERE shares.item_id = folders.id)`
@@ -80,7 +82,7 @@ func QueryFiles(db *sql.DB, query string, args ...any) ([]File, error) {
 	out := []File{}
 	for rows.Next() {
 		var f File
-		if err := rows.Scan(&f.ID, &f.FolderID, &f.Name, &f.Size, &f.Mime, &f.CreatedAt, &f.TakenAt, &f.Missing, &f.Shared); err != nil {
+		if err := rows.Scan(&f.ID, &f.FolderID, &f.Name, &f.Size, &f.Mime, &f.CreatedAt, &f.TakenAt, &f.Missing, &f.Shared, &f.Comments); err != nil {
 			return nil, err
 		}
 		if f.TakenAt != nil && *f.TakenAt == 0 {

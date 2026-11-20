@@ -220,6 +220,7 @@ func (c Controller) purge(ctx context.Context, groups []string) (int, error) {
 			return start, err
 		}
 		c.DB.Exec(`DELETE FROM shares WHERE item_id = ANY($1::uuid[])`, ids)
+		c.DB.Exec(`DELETE FROM comments WHERE file_id = ANY($1::uuid[])`, ids)
 		for _, id := range ids {
 			os.Remove(ThumbPath(c.ThumbDir, id))
 		}

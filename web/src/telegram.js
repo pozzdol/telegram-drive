@@ -16,9 +16,10 @@ const loadScript = () => (script ??= new Promise((resolve, reject) => {
 }))
 
 // Opens the popup; resolves with the signed user data, or null if the user closed it.
+// request_access 'write' lets the bot message the user (comment notifications).
 export async function telegramAuth(botId) {
   await loadScript()
   return new Promise(resolve => {
-    window.Telegram.Login.auth({ bot_id: botId, request_access: false }, data => resolve(data || null))
+    window.Telegram.Login.auth({ bot_id: botId, request_access: 'write' }, data => resolve(data || null))
   })
 }

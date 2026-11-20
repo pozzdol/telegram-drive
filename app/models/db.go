@@ -124,6 +124,18 @@ CREATE TABLE IF NOT EXISTS access_log (
 	action  text NOT NULL
 );
 CREATE INDEX IF NOT EXISTS access_log_item ON access_log(item_id, id);
+-- Comments on files. user_id NULL = a guest of a public link (guest_name, and the guest session
+-- hash so they can delete their own comment).
+CREATE TABLE IF NOT EXISTS comments (
+	id         uuid PRIMARY KEY,
+	file_id    uuid NOT NULL,
+	user_id    uuid REFERENCES users(id) ON DELETE SET NULL,
+	guest_name text,
+	guest      text,
+	body       text NOT NULL,
+	created_at bigint NOT NULL DEFAULT extract(epoch FROM now())::bigint
+);
+CREATE INDEX IF NOT EXISTS comments_file ON comments(file_id, created_at);
 -- What guests added: their typed name (they have no account), and uploads they started.
 ALTER TABLE files ADD COLUMN IF NOT EXISTS guest_name text;
 ALTER TABLE folders ADD COLUMN IF NOT EXISTS guest_name text;

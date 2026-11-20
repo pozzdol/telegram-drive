@@ -6,6 +6,7 @@ import (
 
 	"telegram-drive/app"
 	"telegram-drive/app/controllers/auth"
+	"telegram-drive/app/controllers/comment"
 	"telegram-drive/app/controllers/file"
 	"telegram-drive/app/controllers/folder"
 	"telegram-drive/app/controllers/share"
@@ -21,6 +22,7 @@ func New(a *app.App) http.Handler {
 	uploadC := upload.Controller{App: a}
 	userC := user.Controller{App: a}
 	shareC := share.Controller{App: a}
+	commentC := comment.Controller{App: a}
 	secure, admin := authC.Secure, authC.Admin
 	// Also open to guests of a public link, within what the link shows (see models.Access).
 	guestOK := authC.SecureOrGuest
@@ -75,6 +77,11 @@ func New(a *app.App) http.Handler {
 	mux.HandleFunc("GET /api/shares/{id}", secure(shareC.List))
 	mux.HandleFunc("PUT /api/shares/{id}", secure(shareC.Put))
 	mux.HandleFunc("DELETE /api/shares/{id}/{user}", secure(shareC.Delete))
+
+	// Comments on files
+	mux.HandleFunc("GET /api/files/{id}/comments", guestOK(commentC.List))
+	mux.HandleFunc("POST /api/files/{id}/comments", guestOK(commentC.Create))
+	mux.HandleFunc("DELETE /api/comments/{id}", guestOK(commentC.Delete))
 
 	// Public links
 	mux.HandleFunc("GET /api/s/{token}", authC.LinkInfo)

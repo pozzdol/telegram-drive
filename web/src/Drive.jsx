@@ -4,7 +4,7 @@
 // On touch screens a long press selects, and while something is selected a tap toggles.
 // With a mouse, dragging draws a box that selects everything it touches (Ctrl/Shift adds to it).
 import { useEffect, useRef, useState } from 'react'
-import { EllipsisVertical, FolderInput, LayoutGrid, List, Play, Search, Trash2, Upload, Users, X } from 'lucide-react'
+import { EllipsisVertical, FolderInput, LayoutGrid, List, MessageSquare, Play, Search, Trash2, Upload, Users, X } from 'lucide-react'
 import { Crumbs, Dropdown, FolderIcon, GridSkeleton, KindIcon, ListSkeleton, MissingBadge, Thumb, fmtDate, fmtSize, kind } from './ui.jsx'
 
 const SORTS = {
@@ -247,7 +247,7 @@ export default function Drive({ data, query, view, sort, root, canEdit = true, o
               <tr key={`f${f.id}`} {...item('file', f)}>
                 <td><button className={`name${f.missing ? ' missing' : ''}`} onClick={open('file', f)}><KindIcon mime={f.mime} />
                   <span className="name-col">
-                    <span className="nm-row"><span className="nm" data-tip={f.name} data-tip-overflow>{f.name}</span>{sharedMark(f)}{f.missing && <MissingBadge />}</span>
+                    <span className="nm-row"><span className="nm" data-tip={f.name} data-tip-overflow>{f.name}</span>{sharedMark(f)}{f.comments > 0 && <span className="cmt-badge" aria-label={`${f.comments} komentar`} data-tip={`${f.comments} komentar`}><MessageSquare size={12} aria-hidden />{f.comments}</span>}{f.missing && <MissingBadge />}</span>
                     <span className="meta">{f.missing ? 'Hilang di Telegram' : `${f.owner ?? fmtDate(f.created_at)} · ${fmtSize(f.size)}`}</span>
                   </span>
                 </button></td>
