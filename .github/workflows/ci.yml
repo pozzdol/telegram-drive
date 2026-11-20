@@ -48,11 +48,21 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      # The binary carries the UI (webui, -tags embedui), built for the same origin as the API.
+      - name: Build the UI
+        run: |
+          cd web && npm ci && VITE_API_URL= npm run build
+          cp -r dist ../webui/dist
       - name: Build linux binaries
         run: |
           for arch in amd64 arm64; do
             f=telegram-drive-linux-$arch
-            GOOS=linux GOARCH=$arch CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o $f .
+            GOOS=linux GOARCH=$arch CGO_ENABLED=0 go build -tags embedui -trimpath -ldflags "-s -w" -o $f .
             sha256sum $f > $f.sha256
           done
           echo "$GITHUB_SHA" > commit.txt

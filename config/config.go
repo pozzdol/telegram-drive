@@ -29,6 +29,18 @@ func (c Config) SessionPath() string { return filepath.Join(c.DataDir, "telegram
 func (c Config) UploadDir() string   { return filepath.Join(c.DataDir, "uploads") }
 func (c Config) ThumbDir() string    { return filepath.Join(c.DataDir, "thumbs") }
 
+// ChannelIDPath holds the id of the storage channel the server created itself, when
+// TELEGRAM_CHANNEL_ID is not set.
+func (c Config) ChannelIDPath() string { return filepath.Join(c.DataDir, "channel.id") }
+
+// NeedTelegram reports what is missing to connect to Telegram (serve and login need it).
+func (c Config) NeedTelegram() error {
+	if c.TelegramAPIID == 0 || c.TelegramAPIHash == "" || c.TelegramPhone == "" {
+		return errors.New("set TELEGRAM_API_ID, TELEGRAM_API_HASH (from https://my.telegram.org) and TELEGRAM_PHONE in .env")
+	}
+	return nil
+}
+
 // Load reads .env (real environment variables win) and validates required values.
 func Load() (Config, error) {
 	loadDotEnv(".env")
@@ -45,8 +57,9 @@ func Load() (Config, error) {
 	}
 	c.TelegramAPIID, _ = strconv.Atoi(os.Getenv("TELEGRAM_API_ID"))
 	c.TelegramChannelID, _ = strconv.ParseInt(os.Getenv("TELEGRAM_CHANNEL_ID"), 10, 64)
-	if c.TelegramAPIID == 0 || c.TelegramAPIHash == "" || c.TelegramPhone == "" || c.TelegramChannelID == 0 {
-		return c, errors.New("set TELEGRAM_API_ID, TELEGRAM_API_HASH, TELEGRAM_PHONE and TELEGRAM_CHANNEL_ID in .env")
+	if c.TelegramChannelID == 0 { // created by the server on first login (see tgclient.OnNewChannel)
+		b, _ := os.ReadFile(c.ChannelIDPath())
+		c.TelegramChannelID, _ = strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
 	}
 	if c.DatabaseURL == "" {
 		return c, errors.New("set DATABASE_URL in .env, e.g. postgres://user:pass@localhost:5432/telegram_drive?sslmode=disable")

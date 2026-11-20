@@ -5,3 +5,4 @@ telegram-drive
 .claude/
 .hallmark/
 .DS_Store
+webui/dist/

@@ -2,7 +2,11 @@
 package routes
 
 import (
+	"io/fs"
 	"net/http"
+	"net/url"
+	"path"
+	"strings"
 
 	"telegram-drive/app"
 	"telegram-drive/app/controllers/auth"
@@ -13,6 +17,7 @@ import (
 	"telegram-drive/app/controllers/upload"
 	"telegram-drive/app/controllers/user"
 	"telegram-drive/app/utils"
+	"telegram-drive/webui"
 )
 
 func New(a *app.App) http.Handler {
@@ -95,7 +100,65 @@ func New(a *app.App) http.Handler {
 	mux.HandleFunc("POST /api/trash/restore", secure(fileC.TrashRestore))
 	mux.HandleFunc("POST /api/trash/purge", secure(fileC.TrashPurge)) // for good, Telegram messages too
 
+	// Release binaries carry the UI: serve it on the same origin as the API.
+	if ui := webui.FS(); ui != nil {
+		mux.Handle("/", uiHandler(ui))
+	}
+
 	return cors(a.Origin, mux)
+}
+
+// uiHandler serves the built UI. Paths that are not files (/s/<token>, ?folder=…) get
+// index.html, since the app routes in the browser. Hashed assets are cached for a year.
+func uiHandler(ui fs.FS) http.Handler {
+	files := http.FileServerFS(ui)
+	csp := strings.Join([]string{
+		"default-src 'self'",
+		"script-src 'self' https://telegram.org", // Telegram login widget
+		"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+		"font-src https://fonts.gstatic.com",
+		"img-src 'self' data: blob: https://*.telegram.org https://t.me",
+		"media-src 'self' blob:",
+		"connect-src 'self'",
+		"frame-src https://oauth.telegram.org",
+		"frame-ancestors 'none'",
+		"base-uri 'self'",
+		"form-action 'self'",
+		"object-src 'none'",
+	}, "; ")
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			utils.WriteErr(w, http.StatusNotFound, "not found")
+			return
+		}
+		h := w.Header()
+		h.Set("Content-Security-Policy", csp)
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+			h.Set("Strict-Transport-Security", "max-age=31536000")
+		}
+		name := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
+		if st, err := fs.Stat(ui, name); name == "" || err != nil || st.IsDir() {
+			h.Set("Cache-Control", "no-cache")
+			http.ServeFileFS(w, r, ui, "index.html")
+			return
+		}
+		if strings.HasPrefix(name, "assets/") {
+			h.Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else {
+			h.Set("Cache-Control", "no-cache")
+		}
+		files.ServeHTTP(w, r)
+	})
+}
+
+// sameHost reports whether an Origin header names the host the request came to, which is how
+// requests from the UI look when the binary serves it itself.
+func sameHost(origin, host string) bool {
+	u, err := url.Parse(origin)
+	return err == nil && u.Host == host
 }
 
 // cors lets the UI on another subdomain (Cloudflare Pages, Vercel) call the API with its cookie.
@@ -104,7 +167,7 @@ func New(a *app.App) http.Handler {
 // Requests without an Origin header (curl, API clients) are not browser cross-site requests.
 func cors(origin string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if o := r.Header.Get("Origin"); o != "" && origin != "" && o != origin &&
+		if o := r.Header.Get("Origin"); o != "" && o != origin && !sameHost(o, r.Host) &&
 			r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
 			utils.WriteErr(w, http.StatusForbidden, "origin not allowed")
 			return

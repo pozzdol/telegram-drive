@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"telegram-drive/app"
 	"telegram-drive/app/models"
@@ -783,5 +784,34 @@ func TestPaging(t *testing.T) {
 	}
 	if strings.Join(media, ",") != "file 8,file 6,file 4,file 2" {
 		t.Fatalf("media pages: %v", media)
+	}
+}
+
+// The built UI: files as they are, index.html for app routes, API paths never swallowed.
+func TestUIHandler(t *testing.T) {
+	ui := fstest.MapFS{
+		"index.html":      {Data: []byte("<html>app</html>")},
+		"assets/app-1.js": {Data: []byte("js")},
+		"favicon.svg":     {Data: []byte("<svg/>")},
+	}
+	h := uiHandler(ui)
+	for _, tc := range []struct {
+		path, body, cache string
+		code              int
+	}{
+		{"/", "app", "no-cache", 200},
+		{"/s/abcdefgh123", "app", "no-cache", 200},
+		{"/assets/app-1.js", "js", "immutable", 200},
+		{"/favicon.svg", "svg", "no-cache", 200},
+		{"/api/nope", "not found", "", 404},
+	} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("GET", tc.path, nil))
+		if rec.Code != tc.code || !strings.Contains(rec.Body.String(), tc.body) || !strings.Contains(rec.Header().Get("Cache-Control"), tc.cache) {
+			t.Fatalf("%s: %d %q cache %q", tc.path, rec.Code, rec.Body.String(), rec.Header().Get("Cache-Control"))
+		}
+		if tc.code == 200 && !strings.Contains(rec.Header().Get("Content-Security-Policy"), "connect-src 'self'") {
+			t.Fatalf("%s: no CSP", tc.path)
+		}
 	}
 }

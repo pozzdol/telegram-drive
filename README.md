@@ -1,261 +1,189 @@
-# telegram-drive
+<p align="center">
+  <img src="docs/logo.svg" width="84" alt="">
+</p>
 
-A self-hosted cloud drive that stores your files in a private Telegram channel. Folders, names and users live in PostgreSQL; the bytes live in Telegram.
+<h1 align="center">Telegram Drive</h1>
 
-It has a web UI (in Indonesian) that should feel familiar if you use Google Drive, plus a Google Photos-style gallery.
+<p align="center">
+  A family cloud drive that keeps every file in your own Telegram account.<br>
+  Google Drive on the outside, a private Telegram channel underneath.
+</p>
 
-- **Drive.** Folders, list and grid views, sort, search, rename, move, delete, drag and drop upload, right-click menus. Select with Ctrl/Cmd+A, Ctrl/Cmd+click, Shift+click, by dragging a box with the mouse, or by long-pressing on a phone, then move or delete them all at once (folders together with everything inside).
-- **Photos.** Every photo and video in one timeline, grouped by the day it was taken (EXIF date for JPEGs), with a full-screen viewer, swipe and keyboard navigation.
-- **Previews.** Image thumbnails made on the server; video thumbnails made in the browser, so no ffmpeg is needed.
-- **Documents.** Markdown renders in the viewer (headings, tables, task lists, code blocks), sanitised with DOMPurify; other text files (code, logs, JSON, CSV) show as plain text. Big files load only their first 512 KB.
-- **Big files.** Chunked, resumable uploads up to 2 GB per file (4 GB with Telegram Premium). Downloads support Range requests, so videos stream and seek.
-- **Family accounts.** Each user has a private drive. There is no public sign-up: the first user becomes admin and adds the others from the admin page.
-- **Log in with Telegram** (optional). Each user links their Telegram account once from the account menu; Telegram cannot create new accounts.
-- **Easy to host.** The UI is static files (Cloudflare Pages, Vercel, Netlify). The backend is a single Go binary with no CGO, behind Cloudflare Tunnel or any reverse proxy.
+<p align="center">
+  <code>curl -fsSL https://raw.githubusercontent.com/pozzdol/telegram-drive/main/install.sh | sudo bash</code>
+</p>
 
-Built with Go, [gotd/td](https://github.com/gotd/td) (MTProto, logged in as a user account), PostgreSQL ([pgx](https://github.com/jackc/pgx)), React and Vite.
+<p align="center">
+  <a href="#install">Install</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#faq">FAQ</a> ·
+  <a href="#documentation">Docs</a>
+</p>
 
-> Telegram is not a backup service. Keep copies of anything you cannot afford to lose, and read Telegram's terms of service before storing large amounts of data.
+<p align="center">
+  <a href="https://github.com/pozzdol/telegram-drive/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/pozzdol/telegram-drive/ci.yml?branch=main&style=flat-square&label=CI"></a>
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue?style=flat-square"></a>
+  <img alt="Go" src="https://img.shields.io/github/go-mod/go-version/pozzdol/telegram-drive?style=flat-square">
+  <img alt="Self-hosted" src="https://img.shields.io/badge/self--hosted-one%20binary-5cc1e8?style=flat-square">
+</p>
 
-## Requirements
+---
 
-- Go (version in `go.mod`) and Node.js 22 or newer.
-- PostgreSQL 13 or newer, with an empty database for the drive. Tables are created at startup.
-- A Telegram account, plus an `api_id` and `api_hash` from <https://my.telegram.org> (API development tools).
-- A **private channel** owned by that account. Its id looks like `-1001234567890`; you can see it, for example, by forwarding a channel message to a bot such as @userinfobot.
+**Telegram Drive** is a self-hosted drive for a family or a small team. Upload, browse, preview and share
+files in a web app that feels like Google Drive, with a Google Photos-style timeline for pictures. The bytes go
+to a private channel in your Telegram account; this server only keeps folders, names and accounts. One Go
+binary serves the app and the API, and the installer sets everything up with one command.
 
-## Quick start (local)
+<p align="center">
+  <img src="docs/screenshots/drive.webp" alt="My Drive in grid view: folders, documents and photo thumbnails" width="880">
+</p>
 
-```bash
-git clone https://github.com/pozzdol/telegram-drive.git
-cd telegram-drive
-cp .env.example .env        # fill in DATABASE_URL and the Telegram values
-go run .                    # first run asks for the Telegram login code (and 2FA password)
-```
+<table>
+  <tr>
+    <td width="33%"><img src="docs/screenshots/photos.webp" alt="Photos timeline grouped by day"></td>
+    <td width="33%"><img src="docs/screenshots/share.webp" alt="Share dialog with family accounts and a public link"></td>
+    <td width="33%"><img src="docs/screenshots/viewer.webp" alt="Photo viewer with comments"></td>
+  </tr>
+  <tr>
+    <td align="center">Photos by the day they were taken</td>
+    <td align="center">Share with family or with a link</td>
+    <td align="center">Viewer with zoom and comments</td>
+  </tr>
+</table>
 
-In a second terminal:
+The interface is in Indonesian. It works on phones too, with a bottom tab bar and touch gestures.
 
-```bash
-npm --prefix web install
-npm --prefix web run dev    # http://localhost:5173, /api is proxied to the backend
-```
+## Install
 
-If the backend does not listen on `5758`, start the UI with `API_PROXY=http://localhost:<port> npm --prefix web run dev`.
+### One command (recommended)
 
-Create the first account (it becomes the admin):
-
-```bash
-curl -X POST localhost:5758/api/auth/register -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"choose-a-long-password"}'
-```
-
-Then sign in in the UI. Add more people from the avatar menu, under **Kelola pengguna**.
-
-### Files you must keep private
-
-- `.env`: your Telegram API credentials.
-- `data/telegram.session`: full access to the Telegram account. Never commit or share it.
-- The PostgreSQL database: folders, file names and users. Back it up (`pg_dump`): without it the files are still in the channel, but you lose their names and folders.
-
-`data/uploads/` holds chunks while an upload is in progress and `data/thumbs/` holds previews. Both are rebuilt as needed.
-
-## Project layout
-
-```
-server.go                       entry point: config, DB, Telegram login, HTTP server
-config/config.go                .env and environment variables
-app/app.go                      App struct shared by all controllers (DB, Telegram, settings)
-app/routes/routes.go            URL to controller mapping, plus CORS
-app/controllers/auth/           register, login, logout, sessions, password hashing
-app/controllers/user/           admin: family accounts
-app/controllers/folder/         list, search, create, rename/move, delete folders
-app/controllers/file/           download (Range), previews, gallery, rename/move, delete files
-app/controllers/upload/         chunked uploads and background send to Telegram
-app/models/                     PostgreSQL schema, row structs, shared queries
-app/utils/tgclient/             Telegram client (MTProto) and parallel chunk reader
-app/utils/thumb/                image thumbnails, EXIF orientation and date
-web/                            React UI (Vite)
-deploy/                         systemd unit and deploy script
-```
-
-## Deploy
-
-```
-Browser -> https://drive.example.com  (static UI: Cloudflare Pages, Vercel, ...)
-        -> https://api.example.com    (Cloudflare Tunnel or reverse proxy -> Go backend)
-```
-
-Both must be subdomains of **the same domain**. The login cookie uses `SameSite=Strict`, so it is not sent if the UI runs on `*.pages.dev`.
-
-### Backend on a Linux server
-
-No Go is needed on the server: every push to `main` makes CI build Linux binaries (amd64 and arm64) and publish them to the [`edge` release](https://github.com/pozzdol/telegram-drive/releases/tag/edge). The deploy script downloads the one built for the commit it checks out and verifies its checksum. Compiling on the server needs more than 3 GB of RAM because of the Telegram client library.
+On a fresh **Debian or Ubuntu** server:
 
 ```bash
-# once, as root (needs git and curl)
-git clone https://github.com/pozzdol/telegram-drive.git /opt/telegram-drive/src
-cp /opt/telegram-drive/src/.env.example /opt/telegram-drive/.env    # fill it in
-mkdir -p /opt/telegram-drive/data && chown -R ubuntu:ubuntu /opt/telegram-drive/.env /opt/telegram-drive/data
+curl -fsSL https://raw.githubusercontent.com/pozzdol/telegram-drive/main/install.sh | sudo bash
 ```
 
-Set `DATABASE_URL` and `ALLOWED_ORIGIN=https://drive.example.com` in `.env`. The unit in `deploy/telegram-drive.service` runs the binary as `ubuntu` and listens on `127.0.0.1` only; edit it if your user differs.
+The installer asks a few questions, then does the rest: it installs PostgreSQL, downloads the binary for your CPU
+(checking its checksum), logs in to Telegram, creates a private storage channel, makes your admin account,
+starts a hardened systemd service and, if you give it a domain, gets an HTTPS certificate through Caddy.
 
-Every deploy, including the first, is one command. It pulls `main`, downloads that commit's binary, installs the unit and restarts the service. Run it after the GitHub Actions run for your push has finished:
+What it asks for:
 
-```bash
-sudo /opt/telegram-drive/src/deploy/deploy.sh
+| Step | You need | Where to get it |
+| --- | --- | --- |
+| Telegram API | API ID and API hash | [my.telegram.org](https://my.telegram.org) → API development tools |
+| Telegram account | The phone number that stores the files, and the phone itself for the login code | Your Telegram app |
+| Database | Nothing, or the URL of a PostgreSQL you already run | Installed for you by default |
+| Web address | A domain whose DNS points at the server, or nothing to use `http://<ip>:5758` | Your DNS provider |
+| Telegram login button | A bot token, optional | [@BotFather](https://t.me/BotFather) |
+| Your account | An admin username and password | You choose |
+
+Run the same command again later to **update** to the latest version.
+
+Every answer can also come from an environment variable (`TD_API_ID`, `TD_API_HASH`, `TD_PHONE`,
+`TD_DATABASE_URL`, `TD_DOMAIN`, …) for unattended installs; see the top of [install.sh](install.sh).
+`TD_DRY_RUN=1` shows what it would change without changing anything.
+
+### Other ways
+
+| Setup | Guide |
+| --- | --- |
+| Another Linux, your own PostgreSQL or reverse proxy | [Self-hosting by hand](docs/self-hosting.md) |
+| UI on Cloudflare Pages or Vercel, API behind Cloudflare Tunnel | [Split deployment](docs/self-hosting.md#split-deployment) |
+| Running it from source to work on it | [Development](docs/development.md) |
+
+## Features
+
+| | |
+| --- | --- |
+| **Drive** | Folders, list and grid views, sorting, search, drag-and-drop upload, rename, move, right-click menus. Select with Ctrl/Cmd+A, Shift-click, a drag box, or a long press, then move or delete many items at once. Big folders load 50 items at a time as you scroll. |
+| **Photos** | Every photo and video in one timeline, grouped by the day it was taken (EXIF), with infinite scroll. |
+| **Viewer** | Zoom, pan, rotate and flip images; a video and audio player with its own controls; Markdown and text previews. The back button closes it, as on Google Drive. |
+| **Big files** | Resumable uploads in chunks, up to 2 GB per file (4 GB with Telegram Premium). Videos stream and seek. |
+| **Sharing** | Share a file or folder with family accounts as viewer, commenter or editor. A folder share covers everything inside it. |
+| **Public links** | One link per item, off by default: role, password, expiry date, guest name, downloads off, and a cap on guest uploads. The owner keeps full access and every change is logged. |
+| **Comments** | On any file, by owners, editors, commenters and link guests. The owner gets a Telegram message when someone comments. |
+| **Trash** | Deleted items wait 30 days, can be previewed and restored, and only then leave Telegram. |
+| **Accounts** | Private drives per person, no public sign-up, an admin page, optional *Log in with Telegram*. |
+| **Housekeeping** | Notices files deleted in Telegram itself, previews videos without ffmpeg, keeps uploads safe across restarts. |
+
+## How it works
+
+```
+ browser ──HTTPS──▶  telegram-drive (one Go binary: web app + JSON API)
+                        │                      │
+                        │ folders, names,      │ file bytes, as documents
+                        │ accounts, shares     │ in a private channel
+                        ▼                      ▼
+                   PostgreSQL           your Telegram account (MTProto)
 ```
 
-The first start needs a Telegram login, which the service cannot type in. Either copy an existing `data/telegram.session`, or stop the service and run the binary once by hand, then stop it with Ctrl-C when it prints `listening on`:
+- The server logs in to Telegram as **your user account** (not a bot), so files keep Telegram's per-file limit
+  instead of a bot's 50 MB, and the storage channel is yours.
+- Uploads arrive in 50 MB chunks, are written to disk, then sent to Telegram in the background. Downloads read
+  1 MiB pieces in parallel and support HTTP Range, so videos can seek.
+- Without the database you still have the files in the channel, but not their names and folders. Back up both:
+  `data/` (the Telegram session) and PostgreSQL.
 
-```bash
-sudo systemctl stop telegram-drive
-cd /opt/telegram-drive && sudo -u ubuntu ./telegram-drive
-sudo systemctl start telegram-drive
-```
+## Scope
 
-To compile on the server instead (more than 3 GB of RAM, Go in `/usr/local/go`), run the script with `BUILD_FROM_SOURCE=1`.
+**What it is for:** a private drive for people you know, on a server you control, using storage you already have.
 
-Never run the same `telegram.session` in two places at once. Telegram may revoke it (`AUTH_KEY_DUPLICATED`).
+**What it is not:** a backup service, an end-to-end encrypted vault, or a way to host public downloads for
+strangers. Those exclusions are deliberate. See the FAQ for why.
 
-### Expose the API
+## FAQ
 
-With **Cloudflare Tunnel**: in the Cloudflare dashboard go to Zero Trust, Networks, Tunnels. Create a tunnel (or pick one already on the server), then add a public hostname `api.example.com` pointing to `http://127.0.0.1:5758`. No port needs to be opened.
+**Is there a storage limit?**
+Telegram does not publish one for channels; each file can be up to 2 GB (4 GB with Premium). Telegram can change
+that at any time.
 
-Any reverse proxy (nginx, Caddy) works too. Pass `X-Forwarded-Proto: https` so the login cookie is marked `Secure`, and allow request bodies of at least 50 MB.
+**Is my data private?**
+Only you and the people you share with can see it through the app. Telegram itself can technically read cloud
+messages: channels are not end-to-end encrypted. Encrypt anything sensitive before uploading it.
 
-### Log in with Telegram (optional)
+**What if a file is deleted in Telegram directly?**
+The drive notices (at opening time and on a check every 6 hours), marks it as missing, and offers to remove the
+leftover record. The content cannot come back.
 
-1. In Telegram, ask @BotFather for `/newbot`, then `/setdomain` with the UI's domain (e.g. `drive.example.com`).
-2. Put `TELEGRAM_BOT_TOKEN` and `TELEGRAM_BOT_USERNAME` in the server's `.env` and restart the service.
-3. Each user signs in with their password once and picks **Hubungkan Telegram** in the avatar menu. After that the login page's **Masuk dengan Telegram** button works for them.
+**Is this allowed by Telegram?**
+Read [Telegram's terms of service](https://telegram.org/tos) for your use. Using your own account to store your
+own files is common, but heavy automated use carries a risk you accept by running this.
 
-The server checks Telegram's HMAC signature with the bot token and accepts login data for one hour.
+**Can I use SQLite instead of PostgreSQL?**
+Not yet. SQLite support is planned, so small installs will not need a database server.
 
-### UI
+**Can two servers share with each other?**
+That is being designed in [docs/federation.md](docs/federation.md). Comments are welcome.
 
-In Cloudflare Pages, connect this repository and use:
+## Documentation
 
-- Root directory: `web`
-- Build command: `npm run build`
-- Output directory: `dist`
-- Environment variable: `VITE_API_URL=https://api.example.com`
+| Topic | |
+| --- | --- |
+| [Self-hosting by hand](docs/self-hosting.md) | Requirements, configuration, split deployment, keeping secrets, known limits |
+| [Sharing, links, comments and the trash](docs/sharing.md) | Who can do what |
+| [API](docs/api.md) | Every endpoint, and the chunked upload protocol |
+| [Development](docs/development.md) | Running from source, project layout, checks before a pull request |
+| [Federation (draft)](docs/federation.md) | Sharing between servers |
 
-Add the custom domain `drive.example.com` to the Pages project. On Vercel the settings are the same: Root Directory `web`, framework Vite, plus the same environment variable.
+## Roadmap
 
-## Uploading large files
-
-Cloudflare rejects request bodies over 100 MB and cuts off responses after 100 s. Uploads therefore go in 50 MB chunks, and the server sends the file to Telegram in the background:
-
-1. `POST /api/uploads {name,size,mime,folder_id}` returns `{id, chunk_size}`.
-2. `PUT /api/uploads/{id}?offset=N` with the raw bytes, in order. If the connection drops, `GET /api/uploads/{id}` returns `received` so the client can continue from there.
-3. After the last chunk the status becomes `sending`. Poll `GET /api/uploads/{id}` until it is `done` (with `file_id`) or `error`.
-
-If the server restarts while sending, the upload is resumed automatically at startup.
-
-## API
-
-Authentication uses the `token` cookie set by login, or `Authorization: Bearer <token>`.
-
-| Method | Path | Body | Notes |
-|---|---|---|---|
-| POST | `/api/auth/register` | `{"username","password"}` | Only the first user (becomes admin); afterwards returns `403` |
-| POST | `/api/auth/login` | `{"username","password"}` | Returns `{"token"}` and sets the cookie |
-| POST | `/api/auth/logout` | | |
-| GET | `/api/me` | | `{id, username, is_admin, telegram_linked}` |
-| GET | `/api/auth/config` | | Public. `{telegram_bot, telegram_bot_id}`, or nulls when Telegram login is off |
-| POST | `/api/auth/telegram` | data from Telegram's login popup | Logs in the drive account linked to that Telegram account; `403` if none |
-| PUT | `/api/me/telegram` | data from Telegram's login popup | Links that Telegram account to the logged-in user; `409` if linked elsewhere |
-| DELETE | `/api/me/telegram` | | Unlinks Telegram; password login keeps working |
-| PUT | `/api/me/password` | `{"current","new"}` | Logs out the user's other sessions |
-| GET | `/api/admin/users` | | Admin only. Users with file count and bytes used |
-| POST | `/api/admin/users` | `{"username","password","is_admin"}` | Admin only |
-| PATCH | `/api/admin/users/{id}` | `{"username"?,"password"?,"is_admin"?}` | Admin only. A password reset logs that user out; admins cannot demote themselves |
-| DELETE | `/api/admin/users/{id}` | | Admin only. `409` while the user still has files; admins cannot delete themselves |
-| GET | `/api/list?folder_id=&sort=&limit=&page_token=` | | `{path, folders, files, next_page_token}`: one page (50 by default, folders first), sorted by `name`, `date` or `size`; send `next_page_token` back for the next page. Empty `folder_id` means root |
-| POST | `/api/folders` | `{"name","parent_id"}` | |
-| PATCH | `/api/folders/{id}` | `{"name"?, "parent_id"?}` | Rename and/or move; `parent_id: ""` means root |
-| POST | `/api/uploads` | `{"name","size","mime","folder_id"}` | Starts a chunked upload |
-| PUT | `/api/uploads/{id}?offset=` | raw bytes | At most `chunk_size` per request |
-| GET | `/api/uploads/{id}` | | Upload status |
-| GET | `/api/files/{id}` | | Download with Range support; `?inline=1` for image, video, audio, PDF or text |
-| GET | `/api/files/{id}/thumb` | | 480 px JPEG preview of an image (JPEG/PNG/GIF/WebP), built once and cached in `data/thumbs/`. For a video: the stored preview, or `404` if none yet |
-| PUT | `/api/files/{id}/thumb` | JPEG body (max 1 MB, 1024 px) | Video only. The UI grabs a frame in the browser (`web/src/videoThumb.js`), so the server needs no ffmpeg. Made right after upload, or the first time an older video appears in the UI |
-| GET | `/api/media?limit=&page_token=` | | All photos and videos, newest first (Photos view), 100 per page |
-| GET | `/api/search?q=&sort=&page_token=` | | Folders and files whose name contains `q`, paged like `/api/list` |
-| GET | `/api/usage` | | Number of files and total bytes stored |
-| PATCH | `/api/files/{id}` | `{"name"?, "folder_id"?}` | Rename and/or move |
-| POST | `/api/files/{id}/check` | | Asks Telegram whether the file's message still exists: `{missing}` |
-| POST | `/api/move` | `{"files":[ids],"folders":[ids],"to":id}` | Bulk move into one folder (`""` = root), in one transaction; `400` if a folder would go into itself or its subfolder |
-| POST | `/api/delete` | `{"files":[ids],"folders":[ids]}` | Move to the trash, folders with everything inside them. Nothing leaves Telegram yet |
-| GET | `/api/people` | | Other accounts, to pick whom to share with |
-| GET | `/api/shared` | | Files and folders others shared with you, with `owner` and your `role` |
-| GET | `/api/shares/{id}` | | Who has access to a file or folder: the owner and everyone it is shared with |
-| PUT | `/api/shares/{id}` | `{"user_id", "role"}` | Share (or change the role): `viewer`, `commenter` or `editor`. Owners and editors may share |
-| DELETE | `/api/shares/{id}/{user}` | | Take access away; anyone may remove their own |
-| GET | `/api/links/{id}` | | The item's public link settings and recent access changes (editors) |
-| PUT | `/api/links/{id}` | `{"enabled"?, "role"?, "expires_at"?, "password"?, "no_download"?, "require_name"?, "max_file"?, "upload_limit"?}` | Change the public link; `password: ""` removes it |
-| POST | `/api/links/{id}/reset` | | New link address; the old one and its guests stop working |
-| GET | `/api/s/{token}` | | Public: what a link opens, and whether it needs a password or a name |
-| POST | `/api/s/{token}/session` | `{"password"?, "name"?}` | Public: opens a link; returns a guest token for the `X-Guest` header (or `?g=`) |
-| GET | `/api/files/{id}/comments` | | Comments on a file, and whether you may write one |
-| POST | `/api/files/{id}/comments` | `{"body"}` | Comment (commenter role or higher, guests too); the owner gets a Telegram message from the bot |
-| DELETE | `/api/comments/{id}` | | Delete a comment: its author, or an editor of the file |
-| GET | `/api/trash` | | Items in the trash (the ones picked, not their contents), with `days` until they are purged |
-| POST | `/api/trash/restore` | `{"ids":[ids]}` | Put items back; one whose folder is gone or still in the trash returns to the root |
-| POST | `/api/trash/purge` | `{"ids":[ids]}` or `{"all":true}` | Delete for good: Telegram messages first, 100 per call, then the records. Items older than 30 days are purged automatically |
+- [x] Sharing with accounts and public links, comments, trash
+- [x] One-command installer, UI built into the binary
+- [ ] SQLite as an alternative to PostgreSQL
+- [ ] Sharing between servers ([draft](docs/federation.md))
+- [ ] Offline copies of shared folders
 
 ## Contributing
 
-Issues and pull requests are welcome. Before opening a PR:
-
-```bash
-gofmt -l .                  # must print nothing
-go vet ./...
-# API tests need a throwaway PostgreSQL database; they drop everything in its public schema.
-TEST_DATABASE_URL=postgres://user:pass@localhost:5432/telegram_drive_test?sslmode=disable go test ./...
-npm --prefix web run build
-```
-
-CI runs the same checks on every push and pull request. Keep changes small and focused, and never include `.env`, `data/` or a Telegram session in a commit.
+Issues and pull requests are welcome. Keep changes small and focused, run the checks in
+[docs/development.md](docs/development.md#before-a-pull-request), and never commit `.env`, `data/` or a
+Telegram session.
 
 ## License
 
 [MIT](LICENSE)
 
-## IDs
-
-Users, folders and files are identified by **UUIDv7** (`0190a3b2-…`): nobody can guess or count another family member's files from an id, and because UUIDv7 starts with a timestamp, new rows still land at the end of the primary-key index. The server creates them (`models.NewID`); the root folder is `""` in the API (`folder_id`, `parent_id`, `to`).
-
-Databases created before this change (numeric ids) are converted once with `deploy/migrate-uuid.sql`. Stop the service, back up with `pg_dump`, run the script with `psql -v ON_ERROR_STOP=1 -f`, delete `data/thumbs/*`, then start the new version. The script runs in one transaction and refuses to run twice.
-
-## Sharing and the trash
-
-A file or folder can be shared with other accounts as viewer, commenter or editor. Sharing a
-folder covers everything inside it. Editors may upload, create folders, rename, move (only within
-the owner's folder tree), delete and share further; whatever they add stays theirs. Deleted items
-go to their owner's trash and are purged, Telegram messages included, after 30 days.
-
-Each item can also have one public link (`/s/<token>`), off by default. Anyone with it can open
-the item without an account, as viewer, commenter or editor, optionally behind a password, an
-expiry date and a required guest name. Guest uploads count against a per-link cap (2 GB per file
-and 20 GB in total by default) and belong to the owner of the folder. The owner always keeps full
-access, whatever a guest editor changes, and every access change is logged.
-
-Commenters, editors and the owner can comment on files. When someone else comments, the file's
-owner gets a message from the login bot, if they linked Telegram and allowed the bot to write to
-them (the login popup asks; accounts linked earlier can link again, or send /start to the bot).
-
-Sharing between separate Telegram Drive servers (`name@other-server`) is being designed in
-[docs/federation.md](docs/federation.md); comments on the draft are welcome.
-
-## Files deleted in Telegram
-
-If a file's message is deleted in the channel itself, the drive keeps its record and marks it **Hilang di Telegram**. The server notices when the file is opened (the API answers `410 Gone`) and by checking every file against Telegram at startup and every 6 hours, 100 messages per request. Opening a missing file explains what happened and offers **Hapus dari aplikasi**, which removes only the record. Telegram has no trash for channel messages, so the content itself cannot be recovered by the drive.
-
-## Known limits
-
-- Downloads fetch 8 chunks of 1 MiB in parallel, and uploads to Telegram use 8 threads. Speed is then limited by the server's own connection: on a ~3.6 MB/s home line, a 1 GB file takes about 5 minutes each way. On a VPS with a faster line it gets much quicker.
-- During an upload, the server needs free disk space at least as large as the file (`data/uploads/`).
-- Files are limited to 2 GB (4 GB with Premium). There is no automatic `FLOOD_WAIT` handling, and no login rate limiting.
-- Cloudflare's terms discourage serving large amounts of video or file traffic through its CDN and Tunnel. For heavy personal use this is usually fine, but it is a risk.
+<hr>
+<p align="center"><i>Your files, your account, your server.</i></p>

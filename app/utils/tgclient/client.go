@@ -28,6 +28,10 @@ type Client struct {
 	client  *telegram.Client
 	api     *tg.Client
 	channel *tg.InputChannel
+
+	// OnNewChannel is called with the Bot-API style id (-100…) of a storage channel this client
+	// created because none was configured, so the caller can remember it.
+	OnNewChannel func(id int64) error
 }
 
 func New(apiID int, apiHash, sessionPath string) *Client {
@@ -36,8 +40,8 @@ func New(apiID int, apiHash, sessionPath string) *Client {
 	})}
 }
 
-// Run logs in (asking for the code in the terminal on first run), finds the storage channel,
-// then calls f while the connection stays up.
+// Run logs in (asking for the code in the terminal on first run), finds the storage channel
+// (or, when channelID is 0, creates a private one), then calls f while the connection stays up.
 func (c *Client) Run(ctx context.Context, phone string, channelID int64, f func(context.Context) error) error {
 	return c.client.Run(ctx, func(ctx context.Context) error {
 		flow := auth.NewFlow(terminalAuth{phone: phone}, auth.SendCodeOptions{})
@@ -45,6 +49,18 @@ func (c *Client) Run(ctx context.Context, phone string, channelID int64, f func(
 			return fmt.Errorf("telegram login: %w", err)
 		}
 		c.api = c.client.API()
+		if channelID == 0 {
+			id, err := c.createChannel(ctx)
+			if err != nil {
+				return err
+			}
+			if c.OnNewChannel != nil {
+				if err := c.OnNewChannel(id); err != nil {
+					return err
+				}
+			}
+			channelID = id
+		}
 		ch, err := c.findChannel(ctx, channelID)
 		if err != nil {
 			return err
@@ -53,6 +69,27 @@ func (c *Client) Run(ctx context.Context, phone string, channelID int64, f func(
 		log.Printf("telegram ready, storage channel %d", channelID)
 		return f(ctx)
 	})
+}
+
+// createChannel makes a private channel to store files in and returns its Bot-API style id.
+func (c *Client) createChannel(ctx context.Context) (int64, error) {
+	upd, err := c.api.ChannelsCreateChannel(ctx, &tg.ChannelsCreateChannelRequest{
+		Broadcast: true,
+		Title:     "Telegram Drive",
+		About:     "Storage for Telegram Drive. Do not delete messages here: they are your files.",
+	})
+	if err != nil {
+		return 0, fmt.Errorf("create storage channel: %w", err)
+	}
+	if u, ok := upd.(*tg.Updates); ok {
+		for _, ch := range u.Chats {
+			if ch, ok := ch.(*tg.Channel); ok {
+				log.Printf("created private storage channel \"Telegram Drive\" (%d)", ch.ID)
+				return -1_000_000_000_000 - ch.ID, nil
+			}
+		}
+	}
+	return 0, errors.New("create storage channel: no channel in the answer")
 }
 
 // findChannel walks the account's dialogs, because a user account needs the channel's access hash.
