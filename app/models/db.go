@@ -66,6 +66,17 @@ CREATE TABLE IF NOT EXISTS uploads (
 ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_id bigint UNIQUE;
 -- Set when the file's message is found deleted in Telegram (unix time); the UI offers to remove the record.
 ALTER TABLE files ADD COLUMN IF NOT EXISTS missing_at bigint;
+-- Trash. Deleting an item marks it and everything inside it with the same trash_id (the id of
+-- the item the user picked), so that whole group is restored or purged together. A group whose
+-- trashed_at is 30 days old is purged for good, Telegram messages included.
+ALTER TABLE folders ADD COLUMN IF NOT EXISTS trashed_at bigint;
+ALTER TABLE folders ADD COLUMN IF NOT EXISTS trash_id uuid;
+ALTER TABLE folders ADD COLUMN IF NOT EXISTS trashed_by uuid REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE files ADD COLUMN IF NOT EXISTS trashed_at bigint;
+ALTER TABLE files ADD COLUMN IF NOT EXISTS trash_id uuid;
+ALTER TABLE files ADD COLUMN IF NOT EXISTS trashed_by uuid REFERENCES users(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS folders_trash ON folders(trash_id) WHERE trash_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS files_trash ON files(trash_id) WHERE trash_id IS NOT NULL;
 `
 
 // Open connects to PostgreSQL (DATABASE_URL, e.g. postgres://user:pass@host:5432/db?sslmode=require)

@@ -175,7 +175,6 @@ Authentication uses the `token` cookie set by login, or `Authorization: Bearer <
 | GET | `/api/list?folder_id=` | | `{path, folders, files}`; empty means root |
 | POST | `/api/folders` | `{"name","parent_id"}` | |
 | PATCH | `/api/folders/{id}` | `{"name"?, "parent_id"?}` | Rename and/or move; `parent_id: ""` means root |
-| DELETE | `/api/folders/{id}` | | Empty folders only, otherwise `409` |
 | POST | `/api/uploads` | `{"name","size","mime","folder_id"}` | Starts a chunked upload |
 | PUT | `/api/uploads/{id}?offset=` | raw bytes | At most `chunk_size` per request |
 | GET | `/api/uploads/{id}` | | Upload status |
@@ -186,10 +185,12 @@ Authentication uses the `token` cookie set by login, or `Authorization: Bearer <
 | GET | `/api/search?q=` | | Folders and files whose name contains `q` |
 | GET | `/api/usage` | | Number of files and total bytes stored |
 | PATCH | `/api/files/{id}` | `{"name"?, "folder_id"?}` | Rename and/or move |
-| DELETE | `/api/files/{id}` | | Also deletes the message in the channel (skipped when it is already gone) |
 | POST | `/api/files/{id}/check` | | Asks Telegram whether the file's message still exists: `{missing}` |
 | POST | `/api/move` | `{"files":[ids],"folders":[ids],"to":id}` | Bulk move into one folder (`""` = root), in one transaction; `400` if a folder would go into itself or its subfolder |
-| POST | `/api/delete` | `{"files":[ids],"folders":[ids]}` | Bulk delete. Folders go with everything inside them; Telegram messages are deleted first, 100 per call |
+| POST | `/api/delete` | `{"files":[ids],"folders":[ids]}` | Move to the trash, folders with everything inside them. Nothing leaves Telegram yet |
+| GET | `/api/trash` | | Items in the trash (the ones picked, not their contents), with `days` until they are purged |
+| POST | `/api/trash/restore` | `{"ids":[ids]}` | Put items back; one whose folder is gone or still in the trash returns to the root |
+| POST | `/api/trash/purge` | `{"ids":[ids]}` or `{"all":true}` | Delete for good: Telegram messages first, 100 per call, then the records. Items older than 30 days are purged automatically |
 
 ## Contributing
 

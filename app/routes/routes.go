@@ -47,7 +47,6 @@ func New(a *app.App) http.Handler {
 	mux.HandleFunc("GET /api/list", secure(folderC.List))
 	mux.HandleFunc("POST /api/folders", secure(folderC.Create))
 	mux.HandleFunc("PATCH /api/folders/{id}", secure(folderC.Update))
-	mux.HandleFunc("DELETE /api/folders/{id}", secure(folderC.Delete))
 	mux.HandleFunc("GET /api/search", secure(folderC.Search))
 
 	// Uploads (chunked)
@@ -63,9 +62,13 @@ func New(a *app.App) http.Handler {
 	mux.HandleFunc("GET /api/media", secure(fileC.Media))
 	mux.HandleFunc("GET /api/usage", secure(fileC.Usage))
 	mux.HandleFunc("PATCH /api/files/{id}", secure(fileC.Update))
-	mux.HandleFunc("DELETE /api/files/{id}", secure(fileC.Delete))
-	mux.HandleFunc("POST /api/delete", secure(fileC.BulkDelete)) // several files/folders, folders recursively
-	mux.HandleFunc("POST /api/move", secure(fileC.BulkMove))     // several files/folders into one folder
+	mux.HandleFunc("POST /api/delete", secure(fileC.BulkTrash)) // into the trash; folders with everything inside
+	mux.HandleFunc("POST /api/move", secure(fileC.BulkMove))    // several files/folders into one folder
+
+	// Trash
+	mux.HandleFunc("GET /api/trash", secure(fileC.TrashList))
+	mux.HandleFunc("POST /api/trash/restore", secure(fileC.TrashRestore))
+	mux.HandleFunc("POST /api/trash/purge", secure(fileC.TrashPurge)) // for good, Telegram messages too
 
 	return cors(a.Origin, mux)
 }

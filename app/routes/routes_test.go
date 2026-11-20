@@ -86,9 +86,6 @@ func TestAuthAndFolders(t *testing.T) {
 
 	c, _ = call("PATCH", "/api/folders/"+idA, `{"parent_id":"`+idB+`"}`)
 	expect(400, c, "move A into its child B")
-	c, _ = call("DELETE", "/api/folders/"+idA, "")
-	expect(409, c, "delete non-empty A")
-
 	c, out = call("GET", "/api/list?folder_id="+idA, "")
 	expect(200, c, "list A")
 	if n := len(out["folders"].([]any)); n != 1 {
@@ -96,8 +93,8 @@ func TestAuthAndFolders(t *testing.T) {
 	}
 	c, _ = call("PATCH", "/api/folders/"+idB, `{"parent_id":"","name":"B2"}`)
 	expect(204, c, "move B to root")
-	c, _ = call("DELETE", "/api/folders/"+idA, "")
-	expect(204, c, "delete empty A")
+	c, _ = call("POST", "/api/delete", `{"folders":["`+idA+`"]}`)
+	expect(200, c, "delete empty A")
 
 	c, out = call("GET", "/api/list?folder_id="+idB, "")
 	if p := out["path"].([]any); len(p) != 1 || p[0].(map[string]any)["name"] != "B2" {
@@ -178,6 +175,52 @@ func TestAuthAndFolders(t *testing.T) {
 	}
 	c, _ = call("GET", "/api/list?folder_id="+idY, "")
 	expect(404, c, "list deleted subfolder")
+
+	// Trash: only the picked item is listed; restoring brings back everything inside it.
+	trashIDs := func() []string {
+		_, out := call("GET", "/api/trash", "")
+		ids := []string{}
+		for _, it := range out["items"].([]any) {
+			ids = append(ids, it.(map[string]any)["id"].(string))
+		}
+		return ids
+	}
+	if ids := trashIDs(); len(ids) != 3 || ids[0] != idX { // X, then M1 and A from earlier
+		t.Fatalf("trash should list X first of 3 items: %v", ids)
+	}
+	c, _ = call("POST", "/api/folders", `{"name":"in trash","parent_id":"`+idY+`"}`)
+	expect(404, c, "create a folder inside a trashed folder")
+	c, _ = call("POST", "/api/trash/restore", `{"ids":["`+idX+`"]}`)
+	expect(200, c, "restore X")
+	_, out = call("GET", "/api/list?folder_id="+idY, "")
+	if len(out["folders"].([]any)) != 1 {
+		t.Fatalf("restored Y should still hold Z: %v", out)
+	}
+	// Y trashed alone, then its parent X: restoring Y alone brings it back at the root.
+	call("POST", "/api/delete", `{"folders":["`+idY+`"]}`)
+	call("POST", "/api/delete", `{"folders":["`+idX+`"]}`)
+	c, _ = call("POST", "/api/trash/restore", `{"ids":["`+idY+`"]}`)
+	expect(200, c, "restore Y")
+	_, out = call("GET", "/api/list?folder_id="+idY, "")
+	if p := out["path"].([]any); len(p) != 1 {
+		t.Fatalf("Y should be back at the root: %v", out["path"])
+	}
+	call("POST", "/api/delete", `{"folders":["`+idY+`"]}`)
+	call("POST", "/api/trash/restore", `{"ids":["`+idY+`"]}`) // X is still in the trash
+	c, _ = call("POST", "/api/trash/purge", `{"ids":["`+idX+`"]}`)
+	expect(200, c, "purge X")
+	c, _ = call("GET", "/api/list?folder_id="+idY, "")
+	expect(200, c, "Y survives purging its old parent")
+	c, _ = call("POST", "/api/trash/purge", `{"all":true}`)
+	expect(200, c, "empty the trash")
+	if ids := trashIDs(); len(ids) != 0 {
+		t.Fatalf("trash should be empty: %v", ids)
+	}
+	var left int
+	db.QueryRow(`SELECT count(*) FROM folders WHERE trashed_at IS NOT NULL`).Scan(&left)
+	if left != 0 {
+		t.Fatalf("%d trashed folders left after emptying the trash", left)
+	}
 
 	// Family accounts: admin adds a user, who sees an empty private drive and no admin page.
 	c, out = call("GET", "/api/me", "")
@@ -280,11 +323,16 @@ func TestVideoThumb(t *testing.T) {
 			t.Fatalf("file %s: missing = %v, want %v", f.ID, f.Missing, want)
 		}
 	}
-	if c := call("DELETE", "/api/files/"+f3, tok, nil); c != 204 {
-		t.Fatalf("delete missing file: want 204, got %d", c)
+	if c := call("POST", "/api/delete", tok, []byte(`{"files":["`+f3+`","`+f4+`"]}`)); c != 200 {
+		t.Fatalf("trash missing files: want 200, got %d", c)
 	}
-	if c := call("POST", "/api/delete", tok, []byte(`{"files":["`+f4+`"]}`)); c != 200 {
-		t.Fatalf("bulk delete missing file: want 200, got %d", c)
+	if c := call("POST", "/api/trash/purge", tok, []byte(`{"ids":["`+f3+`","`+f4+`"]}`)); c != 200 {
+		t.Fatalf("purge missing files: want 200, got %d", c)
+	}
+	var n int
+	db.QueryRow(`SELECT count(*) FROM files WHERE id IN ($1, $2)`, f3, f4).Scan(&n)
+	if n != 0 {
+		t.Fatalf("purged files still have %d rows", n)
 	}
 
 	for _, tc := range []struct {

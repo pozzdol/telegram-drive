@@ -81,7 +81,7 @@ func QueryFiles(db *sql.DB, query string, args ...any) ([]File, error) {
 }
 
 // FolderRef turns a client folder id into a SQL value: "" means root (NULL),
-// anything else must be a folder owned by uid.
+// anything else must be a folder owned by uid and not in the trash.
 func FolderRef(db *sql.DB, uid, id string) (any, error) {
 	if id == "" {
 		return nil, nil
@@ -90,7 +90,7 @@ func FolderRef(db *sql.DB, uid, id string) (any, error) {
 		return nil, ErrFolderNotFound
 	}
 	var x int
-	if err := db.QueryRow(`SELECT 1 FROM folders WHERE id = $1 AND user_id = $2`, id, uid).Scan(&x); err != nil {
+	if err := db.QueryRow(`SELECT 1 FROM folders WHERE id = $1 AND user_id = $2 AND trashed_at IS NULL`, id, uid).Scan(&x); err != nil {
 		return nil, ErrFolderNotFound
 	}
 	return id, nil

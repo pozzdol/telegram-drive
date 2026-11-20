@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"image/jpeg"
 	"io"
 	"log"
@@ -62,14 +61,6 @@ func (c Controller) Download(w http.ResponseWriter, r *http.Request, uid string)
 	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'")
 	w.Header().Set("Content-Disposition", mime.FormatMediaType(disp, map[string]string{"filename": f.Name}))
 	http.ServeContent(w, r, f.Name, time.Unix(f.CreatedAt, 0), rs)
-}
-
-// deletable is the message to delete in Telegram, or none when it is already gone there.
-func deletable(missing bool, msgID int) []int {
-	if missing {
-		return nil
-	}
-	return []int{msgID}
 }
 
 func (c Controller) deleteMessages(ctx context.Context, msgs []int) error {
@@ -311,12 +302,12 @@ func (c Controller) BulkMove(w http.ResponseWriter, r *http.Request, uid string)
 		return
 	}
 	defer tx.Rollback()
-	files, err := tx.Exec(`UPDATE files SET folder_id = $1 WHERE user_id = $2 AND id = ANY($3::uuid[])`, ref, uid, req.Files)
+	files, err := tx.Exec(`UPDATE files SET folder_id = $1 WHERE user_id = $2 AND id = ANY($3::uuid[]) AND trashed_at IS NULL`, ref, uid, req.Files)
 	if err != nil {
 		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	folders, err := tx.Exec(`UPDATE folders SET parent_id = $1 WHERE user_id = $2 AND id = ANY($3::uuid[])`, ref, uid, req.Folders)
+	folders, err := tx.Exec(`UPDATE folders SET parent_id = $1 WHERE user_id = $2 AND id = ANY($3::uuid[]) AND trashed_at IS NULL`, ref, uid, req.Folders)
 	if err != nil {
 		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
@@ -330,98 +321,6 @@ func (c Controller) BulkMove(w http.ResponseWriter, r *http.Request, uid string)
 	utils.WriteJSON(w, http.StatusOK, map[string]int64{"files": nf, "folders": nd})
 }
 
-// POST /api/delete {"files":[ids],"folders":[ids]} — deletes the files and the folders with
-// everything inside them (subfolders and their files). Telegram messages go first, 100 at a
-// time; rows are removed only for messages that are gone, so a failure never orphans bytes.
-func (c Controller) BulkDelete(w http.ResponseWriter, r *http.Request, uid string) {
-	var req struct {
-		Files   []string `json:"files"`
-		Folders []string `json:"folders"`
-	}
-	if !utils.ReadJSON(w, r, &req) {
-		return
-	}
-	if len(req.Files)+len(req.Folders) == 0 || len(req.Files)+len(req.Folders) > 5000 {
-		utils.WriteErr(w, http.StatusBadRequest, "select 1-5000 items")
-		return
-	}
-	if !models.ValidIDs(req.Files) || !models.ValidIDs(req.Folders) {
-		utils.WriteErr(w, http.StatusBadRequest, "invalid id")
-		return
-	}
-	if req.Files == nil {
-		req.Files = []string{}
-	}
-	if req.Folders == nil {
-		req.Folders = []string{}
-	}
-
-	// The selected folders and every folder below them, limited to this user's own.
-	var folders []string
-	rows, err := c.DB.Query(`WITH RECURSIVE t(id) AS (
-			SELECT id FROM folders WHERE user_id = $1 AND id = ANY($2::uuid[])
-			UNION SELECT f.id FROM folders f JOIN t ON f.parent_id = t.id
-		) SELECT id FROM t`, uid, req.Folders)
-	if err != nil {
-		utils.ServerErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	for rows.Next() {
-		var id string
-		rows.Scan(&id)
-		folders = append(folders, id)
-	}
-	rows.Close()
-	if folders == nil {
-		folders = []string{}
-	}
-
-	type victim struct {
-		id      string
-		msg     int
-		missing bool
-	}
-	var files []victim
-	rows, err = c.DB.Query(`SELECT id, msg_id, missing_at IS NOT NULL FROM files WHERE user_id = $1 AND (id = ANY($2::uuid[]) OR folder_id = ANY($3::uuid[]))`,
-		uid, req.Files, folders)
-	if err != nil {
-		utils.ServerErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	for rows.Next() {
-		var v victim
-		rows.Scan(&v.id, &v.msg, &v.missing)
-		files = append(files, v)
-	}
-	rows.Close()
-
-	for start := 0; start < len(files); start += 100 {
-		batch := files[start:min(start+100, len(files))]
-		ids, msgs := make([]string, len(batch)), make([]int, 0, len(batch))
-		for i, v := range batch {
-			ids[i] = v.id
-			if !v.missing { // already gone from Telegram: only the record is left
-				msgs = append(msgs, v.msg)
-			}
-		}
-		if err := c.deleteMessages(r.Context(), msgs); err != nil {
-			log.Printf("bulk delete: Telegram failed after %d of %d files: %v", start, len(files), err)
-			utils.WriteErr(w, http.StatusBadGateway, fmt.Sprintf("deleted %d of %d files, then Telegram failed; try again", start, len(files)))
-			return
-		}
-		c.DB.Exec(`DELETE FROM files WHERE id = ANY($1::uuid[])`, ids)
-		for _, id := range ids {
-			os.Remove(ThumbPath(c.ThumbDir, id))
-		}
-	}
-	// One statement: parent and child folders go together, so the parent_id check passes.
-	if _, err := c.DB.Exec(`DELETE FROM folders WHERE user_id = $1 AND id = ANY($2::uuid[])`, uid, folders); err != nil {
-		utils.ServerErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	utils.WriteJSON(w, http.StatusOK, map[string]int{"files": len(files), "folders": len(folders)})
-}
-
 // GET /api/media?offset=&limit= — photos and videos across all folders, newest first (gallery view).
 func (c Controller) Media(w http.ResponseWriter, r *http.Request, uid string) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
@@ -430,7 +329,7 @@ func (c Controller) Media(w http.ResponseWriter, r *http.Request, uid string) {
 	}
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	files, err := models.QueryFiles(c.DB, `SELECT `+models.FileColumns+` FROM files
-		WHERE user_id = $1 AND (mime LIKE 'image/%' OR mime LIKE 'video/%') AND mime <> 'image/svg+xml'
+		WHERE user_id = $1 AND trashed_at IS NULL AND (mime LIKE 'image/%' OR mime LIKE 'video/%') AND mime <> 'image/svg+xml'
 		ORDER BY coalesce(nullif(taken_at, 0), created_at) DESC, id DESC LIMIT $2 OFFSET $3`, uid, limit, max(offset, 0))
 	if err != nil {
 		utils.ServerErr(w, http.StatusInternalServerError, err)
@@ -446,7 +345,10 @@ func (c Controller) BackfillTakenAt() {
 	if err != nil {
 		return
 	}
-	type todo struct{ id, msg int64 }
+	type todo struct {
+		id  string
+		msg int64
+	}
 	var list []todo
 	for rows.Next() {
 		var t todo
@@ -502,7 +404,7 @@ func (c Controller) Update(w http.ResponseWriter, r *http.Request, uid string) {
 			utils.WriteErr(w, http.StatusBadRequest, "name must be 1-255 chars")
 			return
 		}
-		c.DB.Exec(`UPDATE files SET name = $1 WHERE id = $2`, name, f.ID)
+		c.DB.Exec(`UPDATE files SET name = $1 WHERE id = $2 AND trashed_at IS NULL`, name, f.ID)
 	}
 	if req.FolderID != nil {
 		ref, err := models.FolderRef(c.DB, uid, *req.FolderID)
@@ -510,23 +412,7 @@ func (c Controller) Update(w http.ResponseWriter, r *http.Request, uid string) {
 			utils.WriteErr(w, http.StatusNotFound, err.Error())
 			return
 		}
-		c.DB.Exec(`UPDATE files SET folder_id = $1 WHERE id = $2`, ref, f.ID)
+		c.DB.Exec(`UPDATE files SET folder_id = $1 WHERE id = $2 AND trashed_at IS NULL`, ref, f.ID)
 	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (c Controller) Delete(w http.ResponseWriter, r *http.Request, uid string) {
-	f, msgID, ok := c.getFile(w, r, uid)
-	if !ok {
-		return
-	}
-	// Telegram first: if it fails the row stays, so nothing is lost track of.
-	// A file already gone from Telegram only has its record left to remove.
-	if err := c.deleteMessages(r.Context(), deletable(f.Missing, msgID)); err != nil {
-		utils.ServerErr(w, http.StatusBadGateway, err)
-		return
-	}
-	c.DB.Exec(`DELETE FROM files WHERE id = $1`, f.ID)
-	os.Remove(ThumbPath(c.ThumbDir, f.ID))
 	w.WriteHeader(http.StatusNoContent)
 }

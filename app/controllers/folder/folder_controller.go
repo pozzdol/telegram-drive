@@ -1,4 +1,4 @@
-// Package folder: list, create, rename/move and delete folders.
+// Package folder: list, create and rename/move folders. Deleting goes through the trash (package file).
 package folder
 
 import (
@@ -45,12 +45,12 @@ func (c Controller) List(w http.ResponseWriter, r *http.Request, uid string) {
 	rows.Close()
 
 	if out.Folders, err = models.QueryFolders(c.DB, `SELECT id, parent_id, name, created_at FROM folders
-		WHERE user_id = $1 AND parent_id IS NOT DISTINCT FROM $2 ORDER BY lower(name), name`, uid, ref); err != nil {
+		WHERE user_id = $1 AND parent_id IS NOT DISTINCT FROM $2 AND trashed_at IS NULL ORDER BY lower(name), name`, uid, ref); err != nil {
 		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	if out.Files, err = models.QueryFiles(c.DB, `SELECT `+models.FileColumns+` FROM files
-		WHERE user_id = $1 AND folder_id IS NOT DISTINCT FROM $2 ORDER BY lower(name), name`, uid, ref); err != nil {
+		WHERE user_id = $1 AND folder_id IS NOT DISTINCT FROM $2 AND trashed_at IS NULL ORDER BY lower(name), name`, uid, ref); err != nil {
 		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -71,12 +71,12 @@ func (c Controller) Search(w http.ResponseWriter, r *http.Request, uid string) {
 	like := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(q) + "%"
 	var err error
 	if out.Folders, err = models.QueryFolders(c.DB, `SELECT id, parent_id, name, created_at FROM folders
-		WHERE user_id = $1 AND name ILIKE $2 ESCAPE '\' ORDER BY lower(name), name LIMIT 50`, uid, like); err != nil {
+		WHERE user_id = $1 AND trashed_at IS NULL AND name ILIKE $2 ESCAPE '\' ORDER BY lower(name), name LIMIT 50`, uid, like); err != nil {
 		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	if out.Files, err = models.QueryFiles(c.DB, `SELECT `+models.FileColumns+` FROM files
-		WHERE user_id = $1 AND name ILIKE $2 ESCAPE '\' ORDER BY created_at DESC LIMIT 200`, uid, like); err != nil {
+		WHERE user_id = $1 AND trashed_at IS NULL AND name ILIKE $2 ESCAPE '\' ORDER BY created_at DESC LIMIT 200`, uid, like); err != nil {
 		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -150,28 +150,6 @@ func (c Controller) Update(w http.ResponseWriter, r *http.Request, uid string) {
 			return
 		}
 		c.DB.Exec(`UPDATE folders SET parent_id = $1 WHERE id = $2`, ref, id)
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (c Controller) Delete(w http.ResponseWriter, r *http.Request, uid string) {
-	id, ok := utils.PathID(w, r)
-	if !ok {
-		return
-	}
-	// ponytail: only empty folders; recursive delete would also need to delete every Telegram message inside.
-	res, err := c.DB.Exec(`DELETE FROM folders WHERE id = $1 AND user_id = $2`, id, uid)
-	if err != nil {
-		if models.IsForeignKeyViolation(err) {
-			utils.WriteErr(w, http.StatusConflict, "folder not empty")
-			return
-		}
-		utils.ServerErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		utils.WriteErr(w, http.StatusNotFound, models.ErrFolderNotFound.Error())
-		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -44,6 +44,7 @@ func main() {
 		upload.Controller{App: a}.Resume()
 		go file.Controller{App: a}.BackfillTakenAt()
 		go file.Controller{App: a}.WatchMissing(6 * time.Hour)
+		go file.Controller{App: a}.WatchTrash(time.Hour)
 
 		srv := &http.Server{Addr: cfg.Host + ":" + cfg.Port, Handler: routes.New(a), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}
 		go func() {

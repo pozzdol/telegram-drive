@@ -200,6 +200,7 @@ h1, h2 { margin: 0; }
 }
 .side-nav button:hover { background: var(--color-paper-3); }
 .side-nav button[aria-current="page"] { background: var(--color-accent-soft); color: var(--color-accent-soft-ink); font-weight: 700; }
+.admin-nav { margin-top: var(--space-xs); padding-top: var(--space-xs); border-top: 1px solid var(--color-rule); } /* admin tools apart from the drive */
 .usage { margin-top: auto; display: flex; flex-direction: column; gap: 2px; padding: var(--space-sm); font-size: var(--text-sm); }
 .usage strong { font-size: var(--text-lg); }
 
@@ -272,15 +273,15 @@ table.list { width: 100%; border-collapse: collapse; }
 .list tbody tr:hover { background: var(--color-paper-2); }
 .list .num { text-align: right; width: 110px; }
 .list .act { width: 56px; padding-right: var(--space-2xs); }
-button.name {
+:is(button, div).name {
   display: flex; align-items: center; gap: var(--space-sm); width: 100%; min-height: 44px; padding: 0;
   border: 0; background: none; text-align: left; font-weight: 500;
 }
-button.name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-button.name .name-col { display: flex; flex-direction: column; min-width: 0; }
-button.name .nm-row { display: flex; align-items: center; gap: var(--space-xs); min-width: 0; }
-button.name .nm-row .missing-badge { overflow: visible; }
-button.name .meta { display: none; font-size: var(--text-xs); font-weight: 400; color: var(--color-ink-2); }
+:is(button, div).name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:is(button, div).name .name-col { display: flex; flex-direction: column; min-width: 0; }
+:is(button, div).name .nm-row { display: flex; align-items: center; gap: var(--space-xs); min-width: 0; }
+:is(button, div).name .nm-row .missing-badge { overflow: visible; }
+:is(button, div).name .meta { display: none; font-size: var(--text-xs); font-weight: 400; color: var(--color-ink-2); }
 .list .more, .folder-chip .more, .card-foot .more { width: 36px; height: 36px; }
 
 .grid-view { padding: 0 var(--space-md) var(--space-lg); }
@@ -697,7 +698,7 @@ dialog.sheet.form label { display: flex; flex-direction: column; gap: var(--spac
   .uploads { bottom: calc(76px + 56px + var(--space-sm) + env(safe-area-inset-bottom)); max-height: 40vh; }
   /* List: no column headers; date and size move under the name like in phone file apps. */
   .list:not(.users) thead { display: none; }
-  button.name .meta { display: block; }
+  :is(button, div).name .meta { display: block; }
   button.name .nm-row .missing-badge { display: none; }
   .list td { height: 60px; }
   /* Cards: two per row even on the narrowest phones. */
@@ -716,3 +717,10 @@ dialog.sheet.form label { display: flex; flex-direction: column; gap: var(--spac
   .tile:hover .thumb { transform: none; }
   .sk { animation: none; }
 }
+
+/* ---- trash ---- */
+.list.trash .act { width: 96px; }
+.trash-acts { display: flex; justify-content: flex-end; gap: 2px; }
+@media (max-width: 420px) { .list.trash .act { width: 56px; } }
+.list.trash .name .meta { display: block; }
+.trash-panel .panel-title { flex-basis: auto; } /* short title: the empty-trash button fits beside it */

@@ -218,7 +218,10 @@ func (c Controller) sendUpload(id string) {
 			}
 		}
 		fileID := models.NewID()
-		_, err = c.DB.Exec(`INSERT INTO files (id, user_id, folder_id, name, size, mime, msg_id, taken_at) VALUES ($8, $1, $2, $3, $4, $5, $6, $7)`,
+		// A folder trashed while the upload ran takes the file into the trash with it.
+		_, err = c.DB.Exec(`INSERT INTO files (id, user_id, folder_id, name, size, mime, msg_id, taken_at, trashed_at, trash_id, trashed_by)
+			SELECT $8::uuid, $1::uuid, $2::uuid, $3, $4, $5, $6, $7::bigint, d.trashed_at, d.trash_id, d.trashed_by
+			FROM (SELECT 1) one LEFT JOIN folders d ON d.id = $2::uuid`,
 			uid, folderID, name, size, mimeType, msgID, taken, fileID)
 		if err != nil {
 			c.TG.Delete(context.Background(), msgID) // e.g. folder deleted meanwhile; don't leave an orphan

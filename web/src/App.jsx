@@ -8,12 +8,13 @@ import { makeVideoThumb } from './videoThumb.js'
 import { telegramAuth, telegramConfig } from './telegram.js'
 import Drive from './Drive.jsx'
 import Photos from './Photos.jsx'
+import Trash from './Trash.jsx'
 import Lightbox from './Lightbox.jsx'
 import Users, { Avatar, PasswordDialog } from './Users.jsx'
 import { AskDialog, ListSkeleton, useTooltips, Menu, MoveDialog, Sk, UploadPanel, fmtSize, isViewable, kind } from './ui.jsx'
 
-// ---- URL state: ?view=photos | ?view=users | ?folder=12 | ?q=text ----
-const VIEWS = ['photos', 'users']
+// ---- URL state: ?view=photos | ?view=users | ?view=trash | ?folder=<id> | ?q=text ----
+const VIEWS = ['photos', 'users', 'trash']
 const readRoute = () => {
   const p = new URLSearchParams(location.search)
   const v = p.get('view')
@@ -73,6 +74,12 @@ export default function App() {
   }, [me, route.view]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const refresh = () => setVersion(v => v + 1)
+  // An undo offer goes away by itself after a while; other notices stay until closed.
+  useEffect(() => {
+    if (!notice?.action) return
+    const t = setTimeout(() => setNotice(''), 10000)
+    return () => clearTimeout(t)
+  }, [notice])
   const closeMenu = useCallback(() => setMenu(null), [])
   const askUser = opts => new Promise(resolve => setAsk({ ...opts, resolve }))
 
@@ -126,22 +133,20 @@ export default function App() {
     const name = await askUser({ title: 'Ganti nama', input: true, value: it.name, selectBase: type === 'file', confirm: 'Simpan' })
     if (name && name !== it.name) run(() => api(`/api/${type}s/${it.id}`, { method: 'PATCH', body: { name } }))
   }
-  // Deletes files and folders (with everything inside) in one request. items: [{ type, item }].
+  // Moves files and folders (with everything inside) to the trash in one request, no question
+  // asked: the notice offers to undo, and the trash keeps them for 30 days. items: [{ type, item }].
   const removeMany = async items => {
-    const folders = items.filter(x => x.type === 'folder')
     const one = items.length === 1 ? items[0].item.name : null
-    const ok = await askUser({
-      title: one ? `Hapus “${one}”?` : `Hapus ${items.length} item?`,
-      message: (folders.length ? 'Folder dihapus beserta semua file dan subfolder di dalamnya. ' : '')
-        + 'File dihapus permanen dari channel Telegram dan tidak bisa dikembalikan.',
-      confirm: 'Hapus',
-      danger: true,
-    })
-    if (!ok) return false
     try {
       await api('/api/delete', {
         method: 'POST',
-        body: { files: items.filter(x => x.type === 'file').map(x => x.item.id), folders: folders.map(x => x.item.id) },
+        body: { files: items.filter(x => x.type === 'file').map(x => x.item.id), folders: items.filter(x => x.type === 'folder').map(x => x.item.id) },
+      })
+      const ids = items.map(x => x.item.id)
+      setNotice({
+        text: one ? `“${one}” dipindahkan ke sampah.` : `${items.length} item dipindahkan ke sampah.`,
+        action: 'Urungkan',
+        onAction: () => run(() => api('/api/trash/restore', { method: 'POST', body: { ids } })),
       })
       return true
     } catch (e) {
@@ -169,7 +174,12 @@ export default function App() {
       danger: true,
     })
     if (!ok) return false
-    try { await api(`/api/files/${f.id}`, { method: 'DELETE' }); return true } catch (e) { setError(e.message); return false } finally { refresh() }
+    // Nothing is left to restore, so it skips the trash.
+    try {
+      await api('/api/delete', { method: 'POST', body: { files: [f.id] } })
+      await api('/api/trash/purge', { method: 'POST', body: { ids: [f.id] } })
+      return true
+    } catch (e) { setError(e.message); return false } finally { refresh() }
   }
   // Downloads leave the page, so check first: a deleted file would otherwise show a bare error page.
   const download = async f => {
@@ -241,7 +251,7 @@ export default function App() {
     items: [
       { label: `Pindahkan ${it.length} item`, icon: FolderInput, onSelect: () => setMoving(it) },
       '-',
-      { label: `Hapus ${it.length} item`, icon: Trash2, danger: true, onSelect: () => removeMany(it) },
+      { label: `Pindahkan ${it.length} item ke sampah`, icon: Trash2, danger: true, onSelect: () => removeMany(it) },
     ],
   } : {
     at,
@@ -257,7 +267,7 @@ export default function App() {
       '-',
       it.missing
         ? { label: 'Hapus dari aplikasi', icon: Trash2, danger: true, onSelect: () => showMissing(it) }
-        : { label: 'Hapus', icon: Trash2, danger: true, onSelect: () => remove(type, it) },
+        : { label: 'Pindahkan ke sampah', icon: Trash2, danger: true, onSelect: () => remove(type, it) },
     ],
   })
   const newMenu = e => {
@@ -331,7 +341,7 @@ export default function App() {
   }
   if (!authed) return <Login onDone={() => { setAuthed(true); refresh() }} />
 
-  const here = route.view === 'photos' ? 'Foto' : data?.path?.at(-1)?.name || 'Drive saya'
+  const here = route.view === 'photos' ? 'Foto' : route.view === 'trash' ? 'Drive saya' : data?.path?.at(-1)?.name || 'Drive saya'
   const goDrive = () => nav({})
   const goPhotos = () => nav({ view: 'photos' })
   const showUsers = route.view === 'users' && me?.is_admin
@@ -349,10 +359,13 @@ export default function App() {
         <nav className="side-nav" aria-label="Bagian">
           <button aria-current={route.view === 'drive' ? 'page' : undefined} onClick={goDrive}><HardDrive size={20} aria-hidden /> Drive saya</button>
           <button aria-current={route.view === 'photos' ? 'page' : undefined} onClick={goPhotos}><Images size={20} aria-hidden /> Foto</button>
-          {me?.is_admin && (
-            <button aria-current={route.view === 'users' ? 'page' : undefined} onClick={() => nav({ view: 'users' })}><UsersIcon size={20} aria-hidden /> Pengguna</button>
-          )}
+          <button aria-current={route.view === 'trash' ? 'page' : undefined} onClick={() => nav({ view: 'trash' })}><Trash2 size={20} aria-hidden /> Sampah</button>
         </nav>
+        {me?.is_admin && (
+          <nav className="side-nav admin-nav" aria-label="Admin">
+            <button aria-current={route.view === 'users' ? 'page' : undefined} onClick={() => nav({ view: 'users' })}><UsersIcon size={20} aria-hidden /> Pengguna</button>
+          </nav>
+        )}
         {usage && (
           <div className="usage">
             <span><strong>{fmtSize(usage.bytes)}</strong> terpakai</span>
@@ -382,12 +395,15 @@ export default function App() {
         )}
         {notice && (
           <div className="banner ok-banner" role="status">
-            <span>{notice}</span>
+            <span>{notice.text ?? notice}</span>
+            {notice.action && <button className="btn ghost" onClick={() => { setNotice(''); notice.onAction() }}>{notice.action}</button>}
             <button className="icon-btn" onClick={() => setNotice('')} aria-label="Tutup pesan"><X size={16} /></button>
           </div>
         )}
         {showUsers ? (
           <Users me={me} version={version} onMenu={(at, items) => setMenu({ at, items })} onAsk={askUser} onError={setError} />
+        ) : route.view === 'trash' ? (
+          <Trash version={version} onMenu={(at, items) => setMenu({ at, items })} onAsk={askUser} onError={setError} onChanged={refresh} />
         ) : route.view === 'photos' ? (
           <Photos version={version} onOpen={(items, start) => items[start].missing ? showMissing(items[start]) : setLightbox({ items, start })} onUpload={() => inputRef.current.click()} onError={setError} />
         ) : (
@@ -411,8 +427,9 @@ export default function App() {
       <nav className="tabbar" aria-label="Bagian">
         <button aria-current={route.view === 'drive' ? 'page' : undefined} onClick={goDrive}><HardDrive size={22} aria-hidden /> Drive</button>
         <button aria-current={route.view === 'photos' ? 'page' : undefined} onClick={goPhotos}><Images size={22} aria-hidden /> Foto</button>
+        <button aria-current={route.view === 'trash' ? 'page' : undefined} onClick={() => nav({ view: 'trash' })}><Trash2 size={22} aria-hidden /> Sampah</button>
       </nav>
-      {route.view !== 'users' && <button className="fab" onClick={newMenu} aria-label="Baru" aria-haspopup="menu"><Plus size={26} /></button>}
+      {route.view !== 'users' && route.view !== 'trash' && <button className="fab" onClick={newMenu} aria-label="Baru" aria-haspopup="menu"><Plus size={26} /></button>}
 
       <input ref={inputRef} type="file" multiple hidden onChange={e => { startUploads(e.target.files); e.target.value = '' }} />
       {dragging && <div className="dropzone" aria-hidden><div><Upload size={28} /> Lepas untuk upload ke <strong>{here}</strong></div></div>}
