@@ -33,6 +33,9 @@ export default function Lightbox({ items, start, onClose, onDelete, onMissing, o
   // The back button (browser, Android) closes the viewer instead of leaving the page, as in
   // Google Drive: opening it adds a history entry, and closing it some other way removes it.
   const byBack = useRef(false)
+  // showModal() focuses the first button (back), and Safari then draws its focus ring even for a
+  // tap. Focus the viewer itself instead; Tab still reaches the buttons, with the ring.
+  useEffect(() => { ref.current?.focus({ preventScroll: true }) }, []) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!history.state?.lightbox) history.pushState({ ...history.state, lightbox: true }, '')
     const onPop = () => { byBack.current = true; ref.current?.close() }
@@ -64,6 +67,7 @@ export default function Lightbox({ items, start, onClose, onDelete, onMissing, o
   return (
     <dialog
       ref={ref}
+      tabIndex={-1}
       className="lightbox"
       onClose={closed}
       onKeyDown={e => {

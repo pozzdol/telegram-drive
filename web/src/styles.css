@@ -164,7 +164,7 @@ h1, h2 { margin: 0; }
 .btn:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
 .btn.wide { width: 100%; }
 .icon-btn {
-  display: inline-grid; place-items: center; flex: none; width: 40px; height: 40px;
+  display: inline-grid; place-items: center; flex: none; width: 40px; height: 40px; padding: 0; /* Safari pads buttons, pushing the icon off centre */
   border: 0; border-radius: var(--radius-pill); background: transparent; color: var(--color-ink-2);
   text-decoration: none; transition: background-color var(--dur-fast) var(--ease-out);
 }
@@ -437,6 +437,8 @@ dialog.lightbox {
 dialog.lightbox[open] { display: grid; grid-template-rows: auto minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); }
 .lb-bar > .icon-btn { flex: none; }
 dialog.lightbox::backdrop { background: transparent; }
+dialog.lightbox:focus { outline: none; } /* focused itself on open, so no button shows a focus ring for a tap */
+.icon-btn > svg { display: block; }
 .lb-bar { display: flex; align-items: center; gap: var(--space-3xs); height: var(--bar-h); padding: 0 var(--space-2xs); z-index: 2; }
 .lb-bar .icon-btn { color: var(--color-stage-ink); }
 .lb-bar .icon-btn:hover, .lb-bar .icon-btn[aria-pressed="true"] { background: oklch(100% 0 0 / 0.12); }
