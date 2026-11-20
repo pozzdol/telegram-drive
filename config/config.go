@@ -62,7 +62,7 @@ func Load() (Config, error) {
 		c.TelegramChannelID, _ = strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
 	}
 	if c.DatabaseURL == "" {
-		return c, errors.New("set DATABASE_URL in .env, e.g. postgres://user:pass@localhost:5432/telegram_drive?sslmode=disable")
+		return c, errors.New("set DATABASE_URL in .env: sqlite:data/drive.db, or postgres://user:pass@localhost:5432/telegram_drive?sslmode=disable")
 	}
 	var err error
 	if c.MaxUploadMB, err = strconv.ParseInt(env("MAX_UPLOAD_MB", "2000"), 10, 64); err != nil {

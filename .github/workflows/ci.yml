@@ -31,6 +31,8 @@ jobs:
       - run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - run: go vet ./...
       - run: go test ./...
+      - name: Tests on SQLite
+        run: TEST_DB=sqlite go test ./app/routes/
       - run: CGO_ENABLED=0 go build -trimpath -o telegram-drive .
 
   # Servers download this binary instead of compiling: the Telegram client library

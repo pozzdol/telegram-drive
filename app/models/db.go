@@ -4,6 +4,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver
@@ -144,10 +147,23 @@ ALTER TABLE uploads ADD COLUMN IF NOT EXISTS guest_name text;
 ALTER TABLE uploads ADD COLUMN IF NOT EXISTS link_item uuid;  -- whose link quota it counts against
 `
 
-// Open connects to PostgreSQL (DATABASE_URL, e.g. postgres://user:pass@host:5432/db?sslmode=require)
-// and creates the tables if they do not exist yet.
+// SQLite reports whether the database is SQLite (DATABASE_URL sqlite:…) rather than PostgreSQL.
+var SQLite bool
+
+// Open connects to the database and creates the tables if they do not exist yet.
+// DATABASE_URL is postgres://user:pass@host:5432/db?sslmode=require, or sqlite:path/to/file.db
+// (a single file, no database server; see sqlite.go).
 func Open(url string) (*sql.DB, error) {
-	db, err := sql.Open("pgx", url)
+	driverName, dsn, ddl := "pgx", url, schema
+	if strings.HasPrefix(url, "sqlite:") {
+		var path string
+		path, dsn = sqliteDSN(url)
+		driverName, ddl, SQLite = "sqlite-td", sqliteSchema, true
+		if dir := filepath.Dir(path); dir != "." {
+			os.MkdirAll(dir, 0o700)
+		}
+	}
+	db, err := sql.Open(driverName, dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +171,7 @@ func Open(url string) (*sql.DB, error) {
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("connect to database: %w", err)
 	}
-	if _, err := db.Exec(schema); err != nil {
+	if _, err := db.Exec(ddl); err != nil {
 		return nil, fmt.Errorf("create schema: %w", err)
 	}
 	return db, nil
@@ -170,7 +186,11 @@ func pgCode(err error) string {
 }
 
 // IsUniqueViolation reports a duplicate value in a UNIQUE column (e.g. username).
-func IsUniqueViolation(err error) bool { return pgCode(err) == "23505" }
+func IsUniqueViolation(err error) bool {
+	return pgCode(err) == "23505" || (err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed"))
+}
 
 // IsForeignKeyViolation reports a row still referenced by another (e.g. a non-empty folder).
-func IsForeignKeyViolation(err error) bool { return pgCode(err) == "23503" }
+func IsForeignKeyViolation(err error) bool {
+	return pgCode(err) == "23503" || (err != nil && strings.Contains(err.Error(), "FOREIGN KEY constraint failed"))
+}

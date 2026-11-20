@@ -81,8 +81,9 @@ type trashItem struct {
 // GET /api/trash — the items the user deleted (not what was inside them), newest first.
 func (c Controller) TrashList(w http.ResponseWriter, r *http.Request, uid string) {
 	rows, err := c.DB.Query(`
-		SELECT 'folder', f.id, f.name, coalesce(x.size, 0)::bigint, '', f.created_at, f.trashed_at, false, coalesce(x.n, 0), NULL::bigint
-		FROM folders f LEFT JOIN LATERAL (SELECT sum(size) AS size, count(*) AS n FROM files WHERE trash_id = f.id) x ON true
+		SELECT 'folder', f.id, f.name, coalesce((SELECT sum(size) FROM files WHERE trash_id = f.id), 0)::bigint, '', f.created_at,
+			f.trashed_at, false, (SELECT count(*) FROM files WHERE trash_id = f.id), NULL::bigint
+		FROM folders f
 		WHERE f.user_id = $1 AND f.id = f.trash_id
 		UNION ALL
 		SELECT 'file', id, name, size, mime, created_at, trashed_at, missing_at IS NOT NULL, 0, nullif(taken_at, 0)

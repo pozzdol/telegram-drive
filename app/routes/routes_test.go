@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"image"
 	"image/jpeg"
 	"net/http/httptest"
@@ -17,9 +18,34 @@ import (
 )
 
 // testDB gives an empty database. Set TEST_DATABASE_URL to a throwaway PostgreSQL database:
-// every table in its public schema is dropped.
+// every table in its public schema is dropped. With TEST_DB=sqlite each test gets a new SQLite file.
 func testDB(t *testing.T) *sql.DB {
 	t.Helper()
+	if os.Getenv("TEST_DB") == "sqlite" {
+		db, err := models.Open("sqlite:" + t.TempDir() + "/test.db")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { db.Close() })
+		var fk int
+		var mode string
+		db.QueryRow(`PRAGMA foreign_keys`).Scan(&fk)
+		db.QueryRow(`PRAGMA journal_mode`).Scan(&mode)
+		if fk != 1 || mode != "wal" {
+			t.Fatalf("sqlite connection: foreign_keys=%d journal_mode=%s", fk, mode)
+		}
+		// A folder that still holds a file cannot be deleted from the table: the FK must hold.
+		if _, err := db.Exec(`INSERT INTO users (id, username, password_hash) VALUES ('u', 'x', 'h');
+			INSERT INTO folders (id, user_id, name) VALUES ('d', 'u', 'd');
+			INSERT INTO files (id, user_id, folder_id, name, size, mime, msg_id) VALUES ('f', 'u', 'd', 'f', 1, 'a/b', 1)`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`DELETE FROM folders WHERE id = 'd'`); !models.IsForeignKeyViolation(err) {
+			t.Fatalf("sqlite foreign keys not enforced: %v", err)
+		}
+		db.Exec(`DELETE FROM files; DELETE FROM folders; DELETE FROM users`)
+		return db
+	}
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL not set")
@@ -733,10 +759,15 @@ func TestPaging(t *testing.T) {
 	for _, n := range []string{"b", "A", "c", "D", "e"} {
 		call("POST", "/api/folders", `{"name":"folder `+n+`"}`)
 	}
-	if _, err := db.Exec(`INSERT INTO files (id, user_id, name, size, mime, msg_id, created_at)
-		SELECT gen_random_uuid(), u.id, 'file ' || i, i * 10, CASE WHEN i % 2 = 0 THEN 'image/jpeg' ELSE 'text/plain' END, i, 1000 + i
-		FROM users u, generate_series(1, 8) i`); err != nil {
-		t.Fatal(err)
+	for i := 1; i <= 8; i++ {
+		mime := "text/plain"
+		if i%2 == 0 {
+			mime = "image/jpeg"
+		}
+		if _, err := db.Exec(`INSERT INTO files (id, user_id, name, size, mime, msg_id, created_at)
+			SELECT $1, id, $2, $3, $4, $5, $6 FROM users`, models.NewID(), fmt.Sprintf("file %d", i), i*10, mime, i, 1000+i); err != nil {
+			t.Fatal(err)
+		}
 	}
 	walk := func(base string) (names []string, pages int) {
 		next := ""

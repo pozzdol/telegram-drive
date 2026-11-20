@@ -7,7 +7,8 @@ runs in production (UI on Cloudflare Pages, API behind Cloudflare Tunnel).
 ## Requirements
 
 - Go (version in `go.mod`) and Node.js 22 or newer.
-- PostgreSQL 13 or newer, with an empty database for the drive. Tables are created at startup.
+- A database: **SQLite** (`DATABASE_URL=sqlite:data/drive.db`, nothing to install, one file) or
+  **PostgreSQL** 13 or newer with an empty database. Tables are created at startup either way.
 - A Telegram account, plus an `api_id` and `api_hash` from <https://my.telegram.org> (API development tools).
 - Optional: a **private channel** owned by that account (one is created on first login if `TELEGRAM_CHANNEL_ID` is empty). Its id looks like `-1001234567890`; you can see it, for example, by forwarding a channel message to a bot such as @userinfobot.
 
@@ -24,6 +25,18 @@ echo 'a-long-password' | ./telegram-drive admin NAME   # create or reset an admi
 
 Release binaries carry the web UI and serve it on the same address as the API, so one process and one
 domain are enough. To host the UI elsewhere instead, see [Split deployment](#split-deployment).
+
+## Choosing and backing up the database
+
+| | SQLite | PostgreSQL |
+| --- | --- | --- |
+| Setup | Nothing: a file in `data/` | A database server |
+| Good for | A family, a few people at a time | Many users, heavy use, a separate database host |
+| Back up | Copy `data/drive.db` while the service is stopped, or live with `sqlite3 data/drive.db ".backup drive-backup.db"` | `pg_dump` |
+
+Both run the same code: on SQLite a small driver rewrites the few PostgreSQL-only bits of each query
+(`app/models/sqlite.go`), and CI runs the whole API test suite on both. There is no converter between
+the two yet; pick one when you install.
 
 ## Split deployment
 

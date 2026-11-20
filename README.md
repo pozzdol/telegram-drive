@@ -51,7 +51,7 @@ On a fresh **Debian or Ubuntu** server:
 curl -fsSL https://raw.githubusercontent.com/pozzdol/telegram-drive/main/install.sh | sudo bash
 ```
 
-The installer asks a few questions, then does the rest: it installs PostgreSQL, downloads the binary for your CPU
+The installer asks a few questions, then does the rest: it sets up the database (SQLite, or PostgreSQL), downloads the binary for your CPU
 (checking its checksum), logs in to Telegram, creates a private storage channel, makes your admin account,
 starts a hardened systemd service and, if you give it a domain, gets an HTTPS certificate through Caddy.
 
@@ -61,7 +61,7 @@ What it asks for:
 | --- | --- | --- |
 | Telegram API | API ID and API hash | [my.telegram.org](https://my.telegram.org) → API development tools |
 | Telegram account | The phone number that stores the files, and the phone itself for the login code | Your Telegram app |
-| Database | Nothing, or the URL of a PostgreSQL you already run | Installed for you by default |
+| Database | Nothing: SQLite (one file) or PostgreSQL are set up for you, or paste the URL of a PostgreSQL you run | Your choice in the installer |
 | Web address | A domain whose DNS points at the server, or nothing to use `http://<ip>:5758` | Your DNS provider |
 | Telegram login button | A bot token, optional | [@BotFather](https://t.me/BotFather) |
 | Your account | An admin username and password | You choose |
@@ -101,7 +101,7 @@ Every answer can also come from an environment variable (`TD_API_ID`, `TD_API_HA
                         │ folders, names,      │ file bytes, as documents
                         │ accounts, shares     │ in a private channel
                         ▼                      ▼
-                   PostgreSQL           your Telegram account (MTProto)
+              SQLite or PostgreSQL      your Telegram account (MTProto)
 ```
 
 - The server logs in to Telegram as **your user account** (not a bot), so files keep Telegram's per-file limit
@@ -109,7 +109,7 @@ Every answer can also come from an environment variable (`TD_API_ID`, `TD_API_HA
 - Uploads arrive in 50 MB chunks, are written to disk, then sent to Telegram in the background. Downloads read
   1 MiB pieces in parallel and support HTTP Range, so videos can seek.
 - Without the database you still have the files in the channel, but not their names and folders. Back up both:
-  `data/` (the Telegram session) and PostgreSQL.
+  `data/` (the Telegram session, and the database file with SQLite) and, with PostgreSQL, the database.
 
 ## Scope
 
@@ -136,8 +136,10 @@ leftover record. The content cannot come back.
 Read [Telegram's terms of service](https://telegram.org/tos) for your use. Using your own account to store your
 own files is common, but heavy automated use carries a risk you accept by running this.
 
-**Can I use SQLite instead of PostgreSQL?**
-Not yet. SQLite support is planned, so small installs will not need a database server.
+**SQLite or PostgreSQL?**
+SQLite keeps everything in one file and needs no database server: right for a family. Pick PostgreSQL for many users
+or heavy use. Both run the same code and the same tests; `DATABASE_URL` decides (`sqlite:data/drive.db` or
+`postgres://…`).
 
 **Can two servers share with each other?**
 That is being designed in [docs/federation.md](docs/federation.md). Comments are welcome.
@@ -156,7 +158,7 @@ That is being designed in [docs/federation.md](docs/federation.md). Comments are
 
 - [x] Sharing with accounts and public links, comments, trash
 - [x] One-command installer, UI built into the binary
-- [ ] SQLite as an alternative to PostgreSQL
+- [x] SQLite as an alternative to PostgreSQL
 - [ ] Sharing between servers ([draft](docs/federation.md))
 - [ ] Offline copies of shared folders
 

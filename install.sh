@@ -4,7 +4,7 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/pozzdol/telegram-drive/main/install.sh | sudo bash
 #
-# It asks for what .env needs, installs PostgreSQL if you want, downloads the release binary
+# It asks for what .env needs, sets up the database (SQLite, or PostgreSQL), downloads the release binary
 # (UI included), logs in to Telegram (you type the code it sends), creates the first admin,
 # and starts a systemd service. Run it again to update an existing install.
 #
@@ -111,11 +111,13 @@ ask TD_CHANNEL_ID "Existing channel id (-100…), empty to create one" ""
 echo
 bold "2/4  Database"
 if [ -z "${TD_DATABASE_URL:-}" ]; then
-  echo "  1) Install PostgreSQL on this server (automatic)"
-  echo "  2) Use a PostgreSQL I already have (paste its URL)"
-  echo "  (SQLite is coming in a later version.)"
-  ask DB_CHOICE "Choose" "$([ -n "$HAS_APT" ] && echo 1 || echo 2)"
+  echo "  1) SQLite: one file in $APP/data, nothing else to run (fine for a family)"
+  echo "  2) PostgreSQL on this server, installed for you (more users, more traffic)"
+  echo "  3) A PostgreSQL I already have (paste its URL)"
+  ask DB_CHOICE "Choose" "1"
   if [ "$DB_CHOICE" = 1 ]; then
+    TD_DATABASE_URL="sqlite:data/drive.db"
+  elif [ "$DB_CHOICE" = 2 ]; then
     [ -n "$HAS_APT" ] || die "Automatic PostgreSQL needs Debian or Ubuntu. Install PostgreSQL yourself and choose 2."
     DB_PASS=$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)
     TD_DATABASE_URL="postgres://telegram_drive:$DB_PASS@127.0.0.1:5432/telegram_drive?sslmode=disable"
@@ -124,7 +126,7 @@ if [ -z "${TD_DATABASE_URL:-}" ]; then
     ask TD_DATABASE_URL "PostgreSQL URL (postgres://user:pass@host:5432/db?sslmode=require)"
   fi
 fi
-[[ $TD_DATABASE_URL =~ ^postgres(ql)?:// ]] || die "Not a PostgreSQL URL."
+[[ $TD_DATABASE_URL =~ ^(postgres(ql)?://|sqlite:) ]] || die "DATABASE_URL must start with postgres:// or sqlite:"
 
 # ---- web address ----
 echo
@@ -295,4 +297,8 @@ fi
 echo
 bold "Done. Open $URL and log in as \"$TD_ADMIN\"."
 echo "Settings: $APP/.env   Logs: journalctl -u $SERVICE -f   Update: run this installer again."
-echo "Back up $APP/data (Telegram session) and the database; together they are your drive."
+if [[ $TD_DATABASE_URL == sqlite:* ]]; then
+  echo "Back up $APP/data: it holds the Telegram session and the database (drive.db). Together they are your drive."
+else
+  echo "Back up $APP/data (Telegram session) and the PostgreSQL database; together they are your drive."
+fi

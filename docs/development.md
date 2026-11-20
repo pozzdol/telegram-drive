@@ -63,6 +63,7 @@ gofmt -l .                  # must print nothing
 go vet ./...
 # API tests need a throwaway PostgreSQL database; they drop everything in its public schema.
 TEST_DATABASE_URL=postgres://user:pass@localhost:5432/telegram_drive_test?sslmode=disable go test ./...
+TEST_DB=sqlite go test ./app/routes/   # the same API tests on SQLite, no setup needed
 npm --prefix web run build
 ```
 
