@@ -31,7 +31,7 @@ func (c Controller) getFile(w http.ResponseWriter, r *http.Request, uid string, 
 	if !ok {
 		return f, 0, false
 	}
-	if role, err := models.Access(r.Context(), c.DB, uid, "file", id); err != nil || role < min {
+	if role, err := models.Access(r.Context(), c.DB, uid, "file", id); (err != nil || role < min) && !(min == models.Viewer && c.inMyTrash(r, uid, id)) {
 		utils.WriteErr(w, http.StatusNotFound, "file not found")
 		return f, 0, false
 	}
@@ -42,6 +42,17 @@ func (c Controller) getFile(w http.ResponseWriter, r *http.Request, uid string, 
 		return f, 0, false
 	}
 	return f, msgID, true
+}
+
+// inMyTrash: the file is in the trash of uid (its owner) or uid deleted it, so uid may still
+// look at it (preview, thumbnail, download) from the trash page. Nothing else works on it there.
+func (c Controller) inMyTrash(r *http.Request, uid, id string) bool {
+	if models.GuestFrom(r.Context()) != nil {
+		return false
+	}
+	var ok bool
+	c.DB.QueryRow(`SELECT true FROM files WHERE id = $1 AND trashed_at IS NOT NULL AND (user_id = $2 OR trashed_by = $2)`, id, uid).Scan(&ok)
+	return ok
 }
 
 // GET /api/files/{id}[?inline=1] — supports Range, so videos can seek and downloads can resume.

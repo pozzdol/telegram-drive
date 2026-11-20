@@ -11,7 +11,8 @@ import Comments from './Comments.jsx'
 // Markdown libraries load only when a text file is opened.
 const TextPreview = lazy(() => import('./TextPreview.jsx'))
 
-export default function Lightbox({ items, start, onClose, onDelete, onMissing, onChanged, canDownload = true }) {
+// readOnly: previewing from the trash, so no comments (they work again after a restore).
+export default function Lightbox({ items, start, onClose, onDelete, onMissing, onChanged, canDownload = true, readOnly = false }) {
   const ref = useModal()
   const [i, setI] = useState(start)
   const [side, setSide] = useState(null) // 'info' | 'comments'
@@ -79,9 +80,9 @@ export default function Lightbox({ items, start, onClose, onDelete, onMissing, o
       <header className="lb-bar">
         <button className="icon-btn" onClick={() => ref.current.close()} aria-label="Kembali"><ArrowLeft size={22} /></button>
         <span className="lb-name" data-tip={f.name} data-tip-overflow>{f.name}</span>
-        <button className="icon-btn lb-cmt-btn" onClick={() => toggle('comments')} aria-label={`Komentar (${counts[f.id] ?? f.comments ?? 0})`} aria-pressed={side === 'comments'} data-tip="Komentar">
+        {!readOnly && <button className="icon-btn lb-cmt-btn" onClick={() => toggle('comments')} aria-label={`Komentar (${counts[f.id] ?? f.comments ?? 0})`} aria-pressed={side === 'comments'} data-tip="Komentar">
           <MessageSquare size={20} />{(counts[f.id] ?? f.comments) > 0 && <span className="lb-cmt-n">{counts[f.id] ?? f.comments}</span>}
-        </button>
+        </button>}
         <button className="icon-btn" onClick={() => toggle('info')} aria-label="Info" aria-pressed={side === 'info'}><Info size={20} /></button>
         {canDownload && <a className="icon-btn" href={fileURL(f.id)} aria-label="Download"><Download size={20} /></a>}
         {onDelete && <button className="icon-btn" onClick={() => onDelete(f)} aria-label="Pindahkan ke sampah" data-tip="Pindahkan ke sampah"><Trash2 size={20} /></button>}

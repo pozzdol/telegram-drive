@@ -790,3 +790,5 @@ dialog.sheet .link-copy input, dialog.sheet .link-pw input { flex: 1; min-width:
 @media (max-width: 767px) {
   .lb-comments { left: var(--space-xs); right: var(--space-xs); width: auto; top: auto; height: min(70dvh, 520px); bottom: var(--space-xs); }
 }
+.trash-panel .tools { display: flex; align-items: center; gap: var(--space-xs); margin-left: auto; }
+.file-card .badge.trash-left { left: auto; right: var(--space-2xs); }

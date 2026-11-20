@@ -345,6 +345,11 @@ func TestVideoThumb(t *testing.T) {
 		{"PUT", "/api/files/" + f2 + "/thumb", jpg.Bytes(), 400},
 		{"PUT", "/api/files/" + f1 + "/thumb", jpg.Bytes(), 204},
 		{"GET", "/api/files/" + f1 + "/thumb", nil, 200},
+		// In the trash the owner may still look at a file (the trash page previews it), not change it.
+		{"POST", "/api/delete", []byte(`{"files":["` + f1 + `"]}`), 200},
+		{"GET", "/api/files/" + f1 + "/thumb", nil, 200},
+		{"PATCH", "/api/files/" + f1, []byte(`{"name":"x.mp4"}`), 404},
+		{"PUT", "/api/files/" + f1 + "/thumb", jpg.Bytes(), 204},
 	} {
 		if got := call(tc.method, tc.path, tok, tc.body); got != tc.want {
 			t.Fatalf("%s %s: want %d, got %d", tc.method, tc.path, tc.want, got)

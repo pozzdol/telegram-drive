@@ -75,16 +75,17 @@ type trashItem struct {
 	TrashedAt int64  `json:"trashed_at"`
 	Missing   bool   `json:"missing"`
 	Files     int64  `json:"files"` // a folder: how many files were trashed with it
+	TakenAt   *int64 `json:"taken_at"`
 }
 
 // GET /api/trash — the items the user deleted (not what was inside them), newest first.
 func (c Controller) TrashList(w http.ResponseWriter, r *http.Request, uid string) {
 	rows, err := c.DB.Query(`
-		SELECT 'folder', f.id, f.name, coalesce(x.size, 0)::bigint, '', f.created_at, f.trashed_at, false, coalesce(x.n, 0)
+		SELECT 'folder', f.id, f.name, coalesce(x.size, 0)::bigint, '', f.created_at, f.trashed_at, false, coalesce(x.n, 0), NULL::bigint
 		FROM folders f LEFT JOIN LATERAL (SELECT sum(size) AS size, count(*) AS n FROM files WHERE trash_id = f.id) x ON true
 		WHERE f.user_id = $1 AND f.id = f.trash_id
 		UNION ALL
-		SELECT 'file', id, name, size, mime, created_at, trashed_at, missing_at IS NOT NULL, 0
+		SELECT 'file', id, name, size, mime, created_at, trashed_at, missing_at IS NOT NULL, 0, nullif(taken_at, 0)
 		FROM files WHERE user_id = $1 AND id = trash_id
 		ORDER BY 7 DESC, 2 DESC`, uid)
 	if err != nil {
@@ -95,7 +96,7 @@ func (c Controller) TrashList(w http.ResponseWriter, r *http.Request, uid string
 	items := []trashItem{}
 	for rows.Next() {
 		var t trashItem
-		if err := rows.Scan(&t.Type, &t.ID, &t.Name, &t.Size, &t.Mime, &t.CreatedAt, &t.TrashedAt, &t.Missing, &t.Files); err != nil {
+		if err := rows.Scan(&t.Type, &t.ID, &t.Name, &t.Size, &t.Mime, &t.CreatedAt, &t.TrashedAt, &t.Missing, &t.Files, &t.TakenAt); err != nil {
 			utils.ServerErr(w, http.StatusInternalServerError, err)
 			return
 		}

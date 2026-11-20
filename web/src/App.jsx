@@ -506,7 +506,9 @@ export default function App() {
         {showUsers ? (
           <Users me={me} version={version} onMenu={(at, items) => setMenu({ at, items })} onAsk={askUser} onError={setError} />
         ) : route.view === 'trash' ? (
-          <Trash version={version} onMenu={(at, items) => setMenu({ at, items })} onAsk={askUser} onError={setError} onChanged={refresh} />
+          <Trash version={version} view={view} onView={v => { setView(v); savePref('view', v) }}
+            onOpen={(items, start) => setLightbox({ items, start, trash: true })}
+            onMenu={(at, items) => setMenu({ at, items })} onAsk={askUser} onError={setError} onChanged={refresh} />
         ) : route.view === 'photos' ? (
           <Photos version={version} onOpen={(items, start) => items[start].missing ? showMissing(items[start]) : setLightbox({ items, start })} onUpload={() => inputRef.current.click()} onError={setError} />
         ) : (
@@ -547,7 +549,8 @@ export default function App() {
       {ask && <AskDialog ask={ask} onDone={v => { setAsk(null); ask.resolve(v) }} />}
       {moving && <MoveDialog items={moving} onMove={to => move(moving, to)} onClose={() => setMoving(null)} />}
       {pwOpen && <PasswordDialog onClose={() => setPwOpen(false)} />}
-      {lightbox && <Lightbox items={lightbox.items} start={lightbox.start} onClose={() => setLightbox(null)} onDelete={!atShared && editable(data?.role) || route.view === 'photos' ? deleteFromLightbox : undefined} onMissing={refresh}
+      {lightbox && <Lightbox items={lightbox.items} start={lightbox.start} onClose={() => setLightbox(null)} onDelete={lightbox.trash ? undefined : !atShared && editable(data?.role) || route.view === 'photos' ? deleteFromLightbox : undefined} onMissing={refresh}
+        readOnly={lightbox.trash}
         onChanged={refresh} canDownload={canDownload} />}
       {sharing && <ShareDialog target={sharing} me={me} onClose={changed => { setSharing(null); if (changed) refresh() }} onLeft={() => route.view !== 'drive' || refresh()} />}
     </div>
