@@ -1,6 +1,6 @@
 # Document editor: Markdown and text, edited together
 
-Status: **stage 1 (versions, new documents, plain-text editing) implemented; stages 2-4 are a draft.** This document describes editing `.md` and `.txt` files inside
+Status: **stages 1-2 implemented (versions, new documents, the rich editor for one person at a time); stages 3-4 are a draft.** This document describes editing `.md` and `.txt` files inside
 Telegram Drive, by several people at once, with autosave and version history. Comments and changes are
 welcome before any code is written.
 
@@ -232,8 +232,8 @@ A toggle in the toolbar opens the Markdown as plain text in a textarea.
 
 ### Text files
 
-`.txt` uses the same editor with formatting turned off: paragraphs and line breaks only, saved as
-plain text.
+`.txt` files, and Markdown the rich editor cannot keep, open in a plain-text editor with the same
+autosave (an **Edit** button on the preview).
 
 ### People
 

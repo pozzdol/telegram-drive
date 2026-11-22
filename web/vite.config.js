@@ -38,5 +38,6 @@ function securityHeaders(api) {
 // Set API_PROXY if the backend runs on another port.
 export default defineConfig(({ mode }) => ({
   plugins: [react(), securityHeaders(loadEnv(mode, process.cwd(), 'VITE_').VITE_API_URL || '')],
+  build: { chunkSizeWarningLimit: 600 }, // the editor chunk (TipTap) loads only when a document opens
   server: { proxy: { '/api': process.env.API_PROXY || 'http://localhost:5758' } },
 }))

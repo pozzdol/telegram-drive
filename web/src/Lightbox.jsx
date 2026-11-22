@@ -124,7 +124,7 @@ export default function Lightbox({ items, start, onClose, onDelete, onMissing, o
             )}
             <TextPreview key={`${f.id}/${ver?.id ?? ''}/${reload}`} file={ver ? { ...f, size: ver.size } : f} markdown={textKind(f) === 'markdown'}
               src={ver ? versionURL(f.id, ver.id, true) : undefined} canEdit={mayEdit} startEditing={startEdit === f.id && !reload}
-              onSaved={() => onChanged?.()}
+              onSaved={() => onChanged?.()} onAsk={onAsk}
               onMissing={() => { setGone(s => new Set(s).add(f.id)); onMissing?.(f) }} />
           </Suspense>
         )}
