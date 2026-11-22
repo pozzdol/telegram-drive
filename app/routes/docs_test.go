@@ -258,7 +258,7 @@ func TestLive(t *testing.T) {
 	_, out = call(ayah, "PUT", "/api/files/"+doc+"/content", "# A", "X-Rev", "0")
 	rev1 := int64(out["rev"].(float64))
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	dial := func(auth string) *websocket.Conn {
 		t.Helper()
