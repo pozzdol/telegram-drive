@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"telegram-drive/app/controllers/live"
 	"telegram-drive/app/models"
 	"telegram-drive/app/utils"
 )
@@ -127,6 +128,13 @@ func (c Controller) PutContent(w http.ResponseWriter, r *http.Request, uid strin
 	if err != nil {
 		utils.ServerErr(w, http.StatusBadGateway, err)
 		return
+	}
+	// From the live editor's saver: the live state stays and is now saved. From anywhere else
+	// (the plain-text editor, an API client): whoever edits live loads the new text.
+	if seq, err := strconv.ParseInt(r.Header.Get("X-Live-Seq"), 10, 64); err == nil {
+		live.Saved(c.DB, f.ID, int64(rev), seq)
+	} else {
+		live.Reset(c.DB, f.ID)
 	}
 	utils.WriteJSON(w, http.StatusOK, map[string]any{"rev": rev, "size": len(body)})
 }
@@ -362,6 +370,7 @@ func (c Controller) VersionRestore(w http.ResponseWriter, r *http.Request, uid s
 		utils.ServerErr(w, http.StatusBadGateway, err)
 		return
 	}
+	live.Reset(c.DB, f.ID)
 	models.LogAccess(r.Context(), c.DB, uid, f.ID, "restored the version of "+time.Unix(v.CreatedAt, 0).UTC().Format(time.RFC3339))
 	utils.WriteJSON(w, http.StatusOK, map[string]any{"rev": rev, "size": len(body)})
 }

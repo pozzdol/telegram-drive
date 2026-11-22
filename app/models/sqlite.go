@@ -116,7 +116,7 @@ func sqliteDSN(url string) (path, dsn string) {
 	return path, "file:" + path + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)&_txlock=immediate"
 }
 
-const sqliteSchema = `
+var sqliteSchema = `
 CREATE TABLE IF NOT EXISTS users (
 	id            TEXT PRIMARY KEY,
 	username      TEXT NOT NULL UNIQUE,
@@ -232,7 +232,7 @@ CREATE TABLE IF NOT EXISTS comments (
 	created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 CREATE INDEX IF NOT EXISTS comments_file ON comments(file_id, created_at);
-` + versionsSchema
+` + versionsSchema + strings.ReplaceAll(liveSchema, "BYTES", "BLOB")
 
 // sqliteColumns are columns added after SQLite support shipped (see Open).
 var sqliteColumns = []string{

@@ -1,6 +1,6 @@
 # Document editor: Markdown and text, edited together
 
-Status: **stages 1-2 implemented (versions, new documents, the rich editor for one person at a time); stages 3-4 are a draft.** This document describes editing `.md` and `.txt` files inside
+Status: **stages 1-3 implemented (versions, new documents, the rich editor, editing together); stage 4 (images) is a draft.** This document describes editing `.md` and `.txt` files inside
 Telegram Drive, by several people at once, with autosave and version history. Comments and changes are
 welcome before any code is written.
 
@@ -86,7 +86,8 @@ CREATE TABLE doc_live (
   file_id     uuid PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
   base_msg_id bigint NOT NULL,          -- the saved version the live state started from
   state       bytea NOT NULL,           -- compacted Yjs state
-  seq         bigint NOT NULL DEFAULT 0,-- last update folded into state
+  seq         bigint NOT NULL DEFAULT 0,-- last update number handed out
+  state_seq   bigint NOT NULL DEFAULT 0,-- updates up to this one are folded into state
   saved_seq   bigint NOT NULL DEFAULT 0,-- last update included in a Telegram save
   updated_at  bigint NOT NULL
 );
@@ -144,6 +145,16 @@ Binary frames, first byte is the type.
 The first browser to open a document with no `doc_live` row downloads the file, parses the
 Markdown into the editor, and sends `seed`. If two browsers race, the server keeps the first seed and
 answers the second with `hello`, so both end up on the same state.
+
+### As built
+
+- A save from the live saver carries `X-Live-Seq`; any other save (the plain-text editor, a restore,
+  an API client) resets the live state, and everyone editing loads the file again.
+- A version records who saved it. In a live session that is the saver, whoever typed.
+- If the WebSocket cannot be opened after a few tries, the editor edits alone with the autosave of
+  stage 2 and says so.
+- The embedded UI allows `ws(s)://<its host>` in `connect-src`; a split deployment's `_headers` allows
+  the API host as `wss://`.
 
 ## 6. Saving and versions
 

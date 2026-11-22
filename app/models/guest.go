@@ -3,6 +3,7 @@ package models
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 // Guest is someone who opened a public link without logging in. Handlers get GuestUID as their
@@ -58,4 +59,19 @@ func GuestName(ctx context.Context) any {
 		return g.Name
 	}
 	return nil
+}
+
+// LoadGuest finds the guest session with this token hash, if its link still works.
+func LoadGuest(ctx context.Context, db *sql.DB, session string) (*Guest, error) {
+	g := &Guest{Session: session}
+	var role string
+	err := db.QueryRowContext(ctx, `SELECT s.item_id, s.name, l.role, l.no_download
+		FROM guest_sessions s JOIN links l ON l.item_id = s.item_id AND l.token = s.link_token
+		WHERE s.token_hash = $1 AND s.expires_at > $2 AND l.enabled AND (l.expires_at IS NULL OR l.expires_at > $2)`,
+		session, time.Now().Unix()).Scan(&g.ItemID, &g.Name, &role, &g.NoDownload)
+	if err != nil {
+		return nil, err
+	}
+	g.Role, _ = ParseShareRole(role)
+	return g, nil
 }

@@ -12,7 +12,7 @@ function securityHeaders(api) {
     'font-src https://fonts.gstatic.com',
     `img-src 'self' data: blob: ${api} https://*.telegram.org https://t.me`,
     `media-src 'self' blob: ${api}`,
-    `connect-src 'self' ${api}`,
+    `connect-src 'self' ${api} ${api.replace(/^http/, 'ws')}`, // ws: live editing
     'frame-src https://oauth.telegram.org',
     "frame-ancestors 'none'",
     "base-uri 'self'",
@@ -38,6 +38,6 @@ function securityHeaders(api) {
 // Set API_PROXY if the backend runs on another port.
 export default defineConfig(({ mode }) => ({
   plugins: [react(), securityHeaders(loadEnv(mode, process.cwd(), 'VITE_').VITE_API_URL || '')],
-  build: { chunkSizeWarningLimit: 600 }, // the editor chunk (TipTap) loads only when a document opens
-  server: { proxy: { '/api': process.env.API_PROXY || 'http://localhost:5758' } },
+  build: { chunkSizeWarningLimit: 700 }, // the editor chunk (TipTap) loads only when a document opens
+  server: { proxy: { '/api': { target: process.env.API_PROXY || 'http://localhost:5758', ws: true } } }, // ws: live editing
 }))

@@ -15,7 +15,7 @@ import (
 // Folder tree lives only in PostgreSQL; Telegram just stores the bytes.
 // Foreign keys refuse to delete a folder that still has subfolders or files.
 // Times are unix seconds (bigint), the same values the API returns.
-const schema = `
+var schema = `
 CREATE TABLE IF NOT EXISTS users (
 	id            uuid PRIMARY KEY, -- UUIDv7, made by the server (models.NewID)
 	username      text NOT NULL UNIQUE,
@@ -145,7 +145,7 @@ ALTER TABLE folders ADD COLUMN IF NOT EXISTS guest_name text;
 ALTER TABLE uploads ADD COLUMN IF NOT EXISTS guest text;      -- guest session token hash
 ALTER TABLE uploads ADD COLUMN IF NOT EXISTS guest_name text;
 ALTER TABLE uploads ADD COLUMN IF NOT EXISTS link_item uuid;  -- whose link quota it counts against
-` + versionsSchema + `
+` + versionsSchema + strings.ReplaceAll(liveSchema, "BYTES", "bytea") + `
 -- Documents edited in the app: when the content last changed (NULL = never; created_at then).
 ALTER TABLE files ADD COLUMN IF NOT EXISTS updated_at bigint;
 `
@@ -167,6 +167,26 @@ CREATE TABLE IF NOT EXISTS file_versions (
 	label      text             -- named version: never removed automatically
 );
 CREATE INDEX IF NOT EXISTS file_versions_file ON file_versions(file_id, created_at);
+`
+
+// liveSchema: documents being edited together (see app/controllers/live). state is the Yjs
+// document up to seq; doc_updates are the edits after it, in order. BYTES is bytea or BLOB.
+const liveSchema = `
+CREATE TABLE IF NOT EXISTS doc_live (
+	file_id     uuid PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
+	base_msg_id bigint NOT NULL, -- the saved version the state started from, or saved last
+	state       BYTES NOT NULL,
+	seq         bigint NOT NULL DEFAULT 0, -- last update number handed out
+	state_seq   bigint NOT NULL DEFAULT 0, -- updates up to this one are folded into state
+	saved_seq   bigint NOT NULL DEFAULT 0, -- updates up to this one are saved to Telegram
+	updated_at  bigint NOT NULL
+);
+CREATE TABLE IF NOT EXISTS doc_updates (
+	file_id uuid NOT NULL REFERENCES doc_live(file_id) ON DELETE CASCADE,
+	seq     bigint NOT NULL,
+	data    BYTES NOT NULL,
+	PRIMARY KEY (file_id, seq)
+);
 `
 
 // SQLite reports whether the database is SQLite (DATABASE_URL sqlite:…) rather than PostgreSQL.

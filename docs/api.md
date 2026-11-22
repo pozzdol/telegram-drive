@@ -51,6 +51,8 @@ If the server restarts while sending, the upload is resumed automatically at sta
 | PATCH | `/api/files/{id}/versions/{vid}` | `{"label"}` | Names a version (`null` removes the name); named versions are never removed automatically |
 | POST | `/api/files/{id}/versions/{vid}/restore` | | Makes that version's content a new current version |
 | DELETE | `/api/files/{id}/versions/{vid}` | | Owner only; not the current version |
+| POST | `/api/files/{id}/live/ticket` | | Editors. `{ticket}`: one use, valid a minute, for the WebSocket below |
+| GET | `/api/files/{id}/live?t=<ticket>` | | WebSocket for editing a document together (Yjs updates relayed and stored). Frames are described in `app/controllers/live/live.go` |
 | POST | `/api/move` | `{"files":[ids],"folders":[ids],"to":id}` | Bulk move into one folder (`""` = root), in one transaction; `400` if a folder would go into itself or its subfolder |
 | POST | `/api/delete` | `{"files":[ids],"folders":[ids]}` | Move to the trash, folders with everything inside them. Nothing leaves Telegram yet |
 | GET | `/api/people` | | Other accounts, to pick whom to share with |

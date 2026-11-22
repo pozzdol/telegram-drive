@@ -45,17 +45,7 @@ func (c Controller) SecureOrGuest(next app.AuthedHandler) http.HandlerFunc {
 }
 
 func (c Controller) guest(ctx context.Context, tok string) (*models.Guest, error) {
-	g := &models.Guest{Session: hashToken(tok)}
-	var role string
-	err := c.DB.QueryRowContext(ctx, `SELECT s.item_id, s.name, l.role, l.no_download
-		FROM guest_sessions s JOIN links l ON l.item_id = s.item_id AND l.token = s.link_token
-		WHERE s.token_hash = $1 AND s.expires_at > $2 AND l.enabled AND (l.expires_at IS NULL OR l.expires_at > $2)`,
-		g.Session, time.Now().Unix()).Scan(&g.ItemID, &g.Name, &role, &g.NoDownload)
-	if err != nil {
-		return nil, err
-	}
-	g.Role, _ = models.ParseShareRole(role)
-	return g, nil
+	return models.LoadGuest(ctx, c.DB, hashToken(tok))
 }
 
 type linkInfo struct {

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"regexp"
 	"strings"
 
 	"telegram-drive/app"
@@ -13,6 +14,7 @@ import (
 	"telegram-drive/app/controllers/comment"
 	"telegram-drive/app/controllers/file"
 	"telegram-drive/app/controllers/folder"
+	"telegram-drive/app/controllers/live"
 	"telegram-drive/app/controllers/share"
 	"telegram-drive/app/controllers/upload"
 	"telegram-drive/app/controllers/user"
@@ -28,6 +30,7 @@ func New(a *app.App) http.Handler {
 	userC := user.Controller{App: a}
 	shareC := share.Controller{App: a}
 	commentC := comment.Controller{App: a}
+	liveC := live.Controller{App: a}
 	secure, admin := authC.Secure, authC.Admin
 	// Also open to guests of a public link, within what the link shows (see models.Access).
 	guestOK := authC.SecureOrGuest
@@ -84,6 +87,8 @@ func New(a *app.App) http.Handler {
 	mux.HandleFunc("PATCH /api/files/{id}/versions/{vid}", guestOK(fileC.VersionLabel))
 	mux.HandleFunc("POST /api/files/{id}/versions/{vid}/restore", guestOK(fileC.VersionRestore))
 	mux.HandleFunc("DELETE /api/files/{id}/versions/{vid}", guestOK(fileC.VersionDelete))
+	mux.HandleFunc("POST /api/files/{id}/live/ticket", guestOK(liveC.Ticket))
+	mux.HandleFunc("GET /api/files/{id}/live", liveC.Serve) // WebSocket; the ticket is the auth
 
 	// Sharing with other accounts
 	mux.HandleFunc("GET /api/people", secure(shareC.People))
@@ -141,7 +146,16 @@ func uiHandler(ui fs.FS) http.Handler {
 			return
 		}
 		h := w.Header()
-		h.Set("Content-Security-Policy", csp)
+		// The live editor's WebSocket: older Safari does not count ws(s) as 'self'.
+		policy := csp
+		if validHost.MatchString(r.Host) {
+			scheme := "ws://"
+			if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+				scheme = "wss://"
+			}
+			policy = strings.Replace(csp, "connect-src 'self'", "connect-src 'self' "+scheme+r.Host, 1)
+		}
+		h.Set("Content-Security-Policy", policy)
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
@@ -162,6 +176,8 @@ func uiHandler(ui fs.FS) http.Handler {
 		files.ServeHTTP(w, r)
 	})
 }
+
+var validHost = regexp.MustCompile(`^[A-Za-z0-9.-]+(:[0-9]+)?$`)
 
 // sameHost reports whether an Origin header names the host the request came to, which is how
 // requests from the UI look when the binary serves it itself.
@@ -189,7 +205,7 @@ func cors(origin string, next http.Handler) http.Handler {
 			h.Set("Access-Control-Expose-Headers", "Content-Range, X-Rev") // lets a preview tell it got only part of the file
 			if r.Method == http.MethodOptions {
 				h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE")
-				h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Range, X-Guest, X-Rev") // Range: text previews read only the start
+				h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Range, X-Guest, X-Rev, X-Live-Seq") // Range: text previews read only the start
 				h.Set("Access-Control-Max-Age", "86400")
 				w.WriteHeader(http.StatusNoContent)
 				return

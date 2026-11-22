@@ -32,6 +32,7 @@ export default function TextPreview({ file, markdown, onMissing, src, canEdit, s
   const [raw, setRaw] = useState(false) // Markdown: show the source instead
   const editable = canEdit && !src && file.size <= MAX_EDIT
   const [editing, setEditing] = useState(false)
+  const [gen, setGen] = useState(0) // bumped when the live editor says the file changed elsewhere
 
   useEffect(() => {
     let live = true
@@ -51,7 +52,7 @@ export default function TextPreview({ file, markdown, onMissing, src, canEdit, s
       })
       .catch(e => live && setState({ error: e.message }))
     return () => { live = false }
-  }, [file.id, src]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [file.id, src, gen]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!state) {
     return (
@@ -67,7 +68,8 @@ export default function TextPreview({ file, markdown, onMissing, src, canEdit, s
   if (markdown && editable && state.rev != null && !editing && richSupported(state.text)) {
     return (
       <Suspense fallback={<div className="doc-sheet" aria-busy="true" />}>
-        <DocEditor file={file} initial={state.text} rev={state.rev} onSaved={onSaved} onAsk={onAsk} autoFocus={startEditing} />
+        <DocEditor key={gen} file={file} initial={state.text} rev={state.rev} onSaved={onSaved} onAsk={onAsk} autoFocus={startEditing}
+          onReset={() => setGen(g => g + 1)} />
       </Suspense>
     )
   }

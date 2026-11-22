@@ -3,14 +3,18 @@ package routes
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
 
 	"telegram-drive/app"
 	"telegram-drive/app/controllers/file"
@@ -211,4 +215,156 @@ func TestDocuments(t *testing.T) {
 func mustAtoi(s string) int {
 	n, _ := strconv.Atoi(s)
 	return n
+}
+
+// Live editing: tickets, seeding, relaying and storing updates, saves, compaction, a new saver
+// when the saver leaves, and a reset when the file changes outside the live editor.
+func TestLive(t *testing.T) {
+	db := testDB(t)
+	tg := &fakeTG{msgs: map[int][]byte{}}
+	srv := httptest.NewServer(New(&app.App{DB: db, TG: tg, UploadDir: t.TempDir(), ThumbDir: t.TempDir(), MaxUpload: 1 << 30}))
+	defer srv.Close()
+	call := func(auth, method, path, body string, hdr ...string) (int, map[string]any) {
+		req, _ := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
+		if strings.HasPrefix(body, "{") {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		if k, v, ok := strings.Cut(auth, ":"); ok {
+			req.Header.Set(k, v)
+		}
+		for i := 0; i+1 < len(hdr); i += 2 {
+			req.Header.Set(hdr[i], hdr[i+1])
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		var out map[string]any
+		json.NewDecoder(res.Body).Decode(&out)
+		return res.StatusCode, out
+	}
+	login := func(name string) string {
+		_, out := call("", "POST", "/api/auth/login", `{"username":"`+name+`","password":"rahasia123"}`)
+		return "Authorization:Bearer " + out["token"].(string)
+	}
+	call("", "POST", "/api/auth/register", `{"username":"ayah","password":"rahasia123"}`)
+	ayah := login("ayah")
+	_, out := call(ayah, "POST", "/api/admin/users", `{"username":"ibu","password":"rahasia123"}`)
+	idIbu := out["id"].(string)
+	ibu := login("ibu")
+	_, out = call(ayah, "POST", "/api/documents", `{"kind":"md"}`)
+	doc := out["id"].(string)
+	_, out = call(ayah, "PUT", "/api/files/"+doc+"/content", "# A", "X-Rev", "0")
+	rev1 := int64(out["rev"].(float64))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	dial := func(auth string) *websocket.Conn {
+		t.Helper()
+		code, out := call(auth, "POST", "/api/files/"+doc+"/live/ticket", "")
+		if code != 200 {
+			t.Fatalf("ticket: %d", code)
+		}
+		ws, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http")+"/api/files/"+doc+"/live?t="+out["ticket"].(string), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ws
+	}
+	read := func(ws *websocket.Conn, want byte) []byte {
+		t.Helper()
+		_, b, err := ws.Read(ctx)
+		if err != nil || len(b) == 0 || b[0] != want {
+			t.Fatalf("want frame %d, got %v %v", want, b, err)
+		}
+		return b[1:]
+	}
+	type hello struct {
+		State    []byte
+		Updates  [][]byte
+		Seq, Rev int64
+		SavedSeq int64 `json:"saved_seq"`
+		Seed     bool
+		Saver    bool
+		Name     string
+	}
+	readHello := func(ws *websocket.Conn) hello {
+		t.Helper()
+		var h hello
+		json.Unmarshal(read(ws, 0), &h)
+		return h
+	}
+	send := func(ws *websocket.Conn, b ...byte) {
+		t.Helper()
+		if err := ws.Write(ctx, websocket.MessageBinary, b); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if code, _ := call(ibu, "POST", "/api/files/"+doc+"/live/ticket", ""); code != 404 {
+		t.Fatalf("ticket without access: %d", code)
+	}
+	if _, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http")+"/api/files/"+doc+"/live?t=nope", nil); err == nil {
+		t.Fatal("WebSocket with a made-up ticket")
+	}
+	call(ayah, "PUT", "/api/shares/"+doc, `{"user_id":"`+idIbu+`","role":"editor"}`)
+
+	a := dial(ayah)
+	if h := readHello(a); !h.Seed || !h.Saver || h.State != nil || h.Rev != rev1 || h.Name != "ayah" {
+		t.Fatalf("first hello: %+v", h)
+	}
+	b := dial(ibu)
+	if h := readHello(b); h.Seed || h.Saver {
+		t.Fatalf("second hello: %+v", h)
+	}
+	send(a, 1, 'S', '0') // seed
+	if h := readHello(b); string(h.State) != "S0" {
+		t.Fatalf("hello after seed: %+v", h)
+	}
+	readHello(a)
+	send(a, 2, 'u', '1')
+	if got := read(a, 7); binary.BigEndian.Uint64(got) != 1 {
+		t.Fatalf("ack: %v", got)
+	}
+	if got := read(b, 2); binary.BigEndian.Uint64(got) != 1 || string(got[8:]) != "u1" {
+		t.Fatalf("relayed update: %v", got)
+	}
+	send(b, 3, 'c')
+	if got := read(a, 3); string(got) != "c" {
+		t.Fatalf("awareness: %v", got)
+	}
+
+	code, out := call(ayah, "PUT", "/api/files/"+doc+"/content", "# A u1", "X-Rev", strconv.FormatInt(rev1, 10), "X-Live-Seq", "1")
+	if code != 200 {
+		t.Fatalf("live save: %d", code)
+	}
+	rev2 := int64(out["rev"].(float64))
+	for _, ws := range []*websocket.Conn{a, b} {
+		var s struct{ Rev, Seq int64 }
+		json.Unmarshal(read(ws, 8), &s)
+		if s.Rev != rev2 || s.Seq != 1 {
+			t.Fatalf("saved: %+v", s)
+		}
+	}
+	send(a, append([]byte{5}, append(binary.BigEndian.AppendUint64(nil, 1), 'S', '1')...)...)
+	c := dial(ayah)
+	if h := readHello(c); string(h.State) != "S1" || len(h.Updates) != 0 || h.Seq != 1 || h.SavedSeq != 1 || h.Rev != rev2 {
+		t.Fatalf("hello after compaction: %+v", h)
+	}
+
+	a.Close(websocket.StatusNormalClosure, "")
+	if got := read(b, 4); !strings.Contains(string(got), "true") {
+		t.Fatalf("new saver: %s", got)
+	}
+
+	// A save from outside the live editor resets everyone.
+	call(ayah, "PUT", "/api/files/"+doc+"/content", "# Lain", "X-Rev", strconv.FormatInt(rev2, 10))
+	read(b, 6)
+	read(c, 6)
+	var n int
+	db.QueryRow(`SELECT count(*) FROM doc_live`).Scan(&n)
+	if n != 0 {
+		t.Fatal("live state kept after an outside save")
+	}
 }

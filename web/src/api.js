@@ -33,15 +33,19 @@ export async function api(path, { method = 'GET', body } = {}) {
 
 // Saves a document (PUT /content). rev is the version the text was based on; a 409 error carries
 // the current rev in e.rev, for "overwrite anyway".
-export async function saveContent(id, rev, text) {
+// liveSeq: a save by the live editor's saver, up to that update. keepalive: the page is closing.
+export async function saveContent(id, rev, text, { liveSeq, keepalive } = {}) {
   const headers = { 'Content-Type': 'text/plain; charset=utf-8', 'X-Rev': String(rev) }
   if (guest) headers['X-Guest'] = guest
-  const res = await fetch(`${BASE}/api/files/${id}/content`, { method: 'PUT', credentials: 'include', headers, body: text })
+  if (liveSeq != null) headers['X-Live-Seq'] = String(liveSeq)
+  const res = await fetch(`${BASE}/api/files/${id}/content`, { method: 'PUT', credentials: 'include', headers, body: text, keepalive })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw Object.assign(new ApiError(res.status, data.error || `HTTP ${res.status}`), { rev: data.rev })
   return data
 }
 
+// WebSocket URL of an API path, on the API's host.
+export const wsURL = path => (BASE || location.origin).replace(/^http/, 'ws') + path
 export const versionURL = (id, vid, inline) => withGuest(`${BASE}/api/files/${id}/versions/${vid}${inline ? '?inline=1' : ''}`)
 export const fileURL = (id, inline) => withGuest(`${BASE}/api/files/${id}${inline ? '?inline=1' : ''}`)
 // ?v= keeps the browser's immutable cache honest if a deleted file's id is ever reused.
