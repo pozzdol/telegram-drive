@@ -1,22 +1,27 @@
 // Full-screen viewer for photos, videos and audio, with prev/next, keys and swipe.
 import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import {
-  ArrowLeft, ChevronLeft, ChevronRight, Download, FlipHorizontal2, MessageSquare, FlipVertical2, Info, RotateCcw, RotateCw,
+  ArrowLeft, ChevronLeft, ChevronRight, Download, FlipHorizontal2, History, MessageSquare, FlipVertical2, Info, RotateCcw, RotateCw,
   Trash2, TriangleAlert, ZoomIn, ZoomOut,
 } from 'lucide-react'
-import { api, fileURL, thumbURL } from './api.js'
+import { api, fileURL, thumbURL, versionURL } from './api.js'
 import { fmtDate, fmtDateTime, fmtSize, hasThumb, kind, textKind, useModal } from './ui.jsx'
 import Player from './Player.jsx'
 import Comments from './Comments.jsx'
+import Versions from './Versions.jsx'
 // Markdown libraries load only when a text file is opened.
 const TextPreview = lazy(() => import('./TextPreview.jsx'))
 
 // readOnly: previewing from the trash, so no comments (they work again after a restore).
-export default function Lightbox({ items, start, onClose, onDelete, onMissing, onChanged, canDownload = true, readOnly = false }) {
+// canEdit: the user may edit files here (a file's own role, in "Shared with me", wins).
+// startEdit: id of a new document to open in the editor. onAsk: the app's question dialog.
+export default function Lightbox({ items, start, onClose, onDelete, onMissing, onChanged, onAsk, canEdit = false, startEdit, canDownload = true, readOnly = false }) {
   const ref = useModal()
   const [i, setI] = useState(start)
-  const [side, setSide] = useState(null) // 'info' | 'comments'
-  const toggle = p => setSide(s => (s === p ? null : p))
+  const [side, setSide] = useState(null) // 'info' | 'comments' | 'versions'
+  const toggle = p => { setSide(s => (s === p ? null : p)); setVer(null) }
+  const [ver, setVer] = useState(null) // an old version shown instead of the current one
+  const [reload, setReload] = useState(0) // bumped by a restore: load the content again
   const [counts, setCounts] = useState({}) // comment counts seen in the panel, newer than items
   const swipe = useRef(null)
   const [gone, setGone] = useState(() => new Set(items.filter(x => x.missing).map(x => x.id)))
@@ -61,9 +66,10 @@ export default function Lightbox({ items, start, onClose, onDelete, onMissing, o
 
   if (!f) return <dialog ref={ref} className="lightbox" onClose={closed} />
 
-  const go = d => setI(x => Math.min(items.length - 1, Math.max(0, x + d)))
+  const go = d => { setVer(null); setI(x => Math.min(items.length - 1, Math.max(0, x + d))) }
   const media = kind(f.mime)
   const k = ['image', 'video', 'audio'].includes(media) ? media : textKind(f) ? 'text' : media
+  const mayEdit = !readOnly && (f.role ? ['owner', 'editor'].includes(f.role) : canEdit) && /\.(md|markdown|txt)$/i.test(f.name)
 
   return (
     <dialog
@@ -83,6 +89,7 @@ export default function Lightbox({ items, start, onClose, onDelete, onMissing, o
         {!readOnly && <button className="icon-btn lb-cmt-btn" onClick={() => toggle('comments')} aria-label={`Komentar (${counts[f.id] ?? f.comments ?? 0})`} aria-pressed={side === 'comments'} data-tip="Komentar">
           <MessageSquare size={20} />{(counts[f.id] ?? f.comments) > 0 && <span className="lb-cmt-n">{counts[f.id] ?? f.comments}</span>}
         </button>}
+        {!readOnly && k === 'text' && <button className="icon-btn" onClick={() => toggle('versions')} aria-label="Riwayat versi" aria-pressed={side === 'versions'} data-tip="Riwayat versi"><History size={20} /></button>}
         <button className="icon-btn" onClick={() => toggle('info')} aria-label="Info" aria-pressed={side === 'info'}><Info size={20} /></button>
         {canDownload && <a className="icon-btn" href={fileURL(f.id)} aria-label="Download"><Download size={20} /></a>}
         {onDelete && <button className="icon-btn" onClick={() => onDelete(f)} aria-label="Pindahkan ke sampah" data-tip="Pindahkan ke sampah"><Trash2 size={20} /></button>}
@@ -109,7 +116,15 @@ export default function Lightbox({ items, start, onClose, onDelete, onMissing, o
         )}
         {!gone.has(f.id) && k === 'text' && (
           <Suspense fallback={<div className="doc-sheet" aria-busy="true" />}>
-            <TextPreview key={f.id} file={f} markdown={textKind(f) === 'markdown'}
+            {ver && (
+              <div className="ver-banner" role="status">
+                <span>{ver.label || `Versi ${new Date(ver.created_at * 1000).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`}</span>
+                <button className="btn" onClick={() => setVer(null)}>Kembali ke versi sekarang</button>
+              </div>
+            )}
+            <TextPreview key={`${f.id}/${ver?.id ?? ''}/${reload}`} file={ver ? { ...f, size: ver.size } : f} markdown={textKind(f) === 'markdown'}
+              src={ver ? versionURL(f.id, ver.id, true) : undefined} canEdit={mayEdit} startEditing={startEdit === f.id && !reload}
+              onSaved={() => onChanged?.()}
               onMissing={() => { setGone(s => new Set(s).add(f.id)); onMissing?.(f) }} />
           </Suspense>
         )}
@@ -123,6 +138,8 @@ export default function Lightbox({ items, start, onClose, onDelete, onMissing, o
       {i > 0 && <button className="lb-nav prev" onClick={() => go(-1)} aria-label="Sebelumnya"><ChevronLeft size={28} /></button>}
       {i < items.length - 1 && <button className="lb-nav next" onClick={() => go(1)} aria-label="Berikutnya"><ChevronRight size={28} /></button>}
 
+      {side === 'versions' && <Versions file={f} viewing={ver} onView={setVer} onAsk={onAsk} canDownload={canDownload} reload={reload}
+        onRestored={() => { setReload(r => r + 1); onChanged?.() }} />}
       {side === 'comments' && <Comments file={f} onChanged={onChanged} onCount={n => setCounts(c => ({ ...c, [f.id]: n }))} />}
       {side === 'info' && (
         <aside className="lb-info" aria-label="Info file">

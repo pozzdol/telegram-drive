@@ -76,6 +76,15 @@ func New(a *app.App) http.Handler {
 	mux.HandleFunc("POST /api/delete", guestOK(fileC.BulkTrash)) // into the trash; folders with everything inside
 	mux.HandleFunc("POST /api/move", guestOK(fileC.BulkMove))    // several files/folders into one folder
 
+	// Documents (Markdown and text edited in the app) and their versions
+	mux.HandleFunc("POST /api/documents", guestOK(fileC.CreateDocument))
+	mux.HandleFunc("PUT /api/files/{id}/content", guestOK(fileC.PutContent))
+	mux.HandleFunc("GET /api/files/{id}/versions", guestOK(fileC.Versions))
+	mux.HandleFunc("GET /api/files/{id}/versions/{vid}", guestOK(fileC.VersionDownload))
+	mux.HandleFunc("PATCH /api/files/{id}/versions/{vid}", guestOK(fileC.VersionLabel))
+	mux.HandleFunc("POST /api/files/{id}/versions/{vid}/restore", guestOK(fileC.VersionRestore))
+	mux.HandleFunc("DELETE /api/files/{id}/versions/{vid}", guestOK(fileC.VersionDelete))
+
 	// Sharing with other accounts
 	mux.HandleFunc("GET /api/people", secure(shareC.People))
 	mux.HandleFunc("GET /api/shared", secure(shareC.Shared)) // shared with me
@@ -177,10 +186,10 @@ func cors(origin string, next http.Handler) http.Handler {
 			h.Set("Access-Control-Allow-Origin", origin)
 			h.Set("Access-Control-Allow-Credentials", "true")
 			h.Add("Vary", "Origin")
-			h.Set("Access-Control-Expose-Headers", "Content-Range") // lets a preview tell it got only part of the file
+			h.Set("Access-Control-Expose-Headers", "Content-Range, X-Rev") // lets a preview tell it got only part of the file
 			if r.Method == http.MethodOptions {
 				h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE")
-				h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Range, X-Guest") // Range: text previews read only the start
+				h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Range, X-Guest, X-Rev") // Range: text previews read only the start
 				h.Set("Access-Control-Max-Age", "86400")
 				w.WriteHeader(http.StatusNoContent)
 				return

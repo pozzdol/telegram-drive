@@ -211,10 +211,15 @@ func (c Controller) purge(ctx context.Context, groups []string) (int, error) {
 		ids, msgs := make([]string, len(batch)), make([]int, 0, len(batch))
 		for i, v := range batch {
 			ids[i] = v.id
-			if !v.missing { // already gone from Telegram: only the record is left
+			if !v.missing && v.msg != 0 { // already gone from Telegram (or empty): only the record is left
 				msgs = append(msgs, v.msg)
 			}
 		}
+		old, err := versionMessages(c.DB, ids) // earlier versions of edited documents
+		if err != nil {
+			return start, err
+		}
+		msgs = append(msgs, old...)
 		if err := c.deleteMessages(ctx, msgs); err != nil {
 			return start, err
 		}

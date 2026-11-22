@@ -44,6 +44,13 @@ If the server restarts while sending, the upload is resumed automatically at sta
 | GET | `/api/usage` | | Number of files and total bytes stored |
 | PATCH | `/api/files/{id}` | `{"name"?, "folder_id"?}` | Rename and/or move |
 | POST | `/api/files/{id}/check` | | Asks Telegram whether the file's message still exists: `{missing}` |
+| POST | `/api/documents` | `{"folder_id","kind":"md"\|"txt","name"?}` | New empty document (no Telegram message until its first save) |
+| PUT | `/api/files/{id}/content` | the whole text (max 1 MB), header `X-Rev` | Saves a `.md`/`.txt` document (editors). `X-Rev` is the version it was based on, from the download's `X-Rev` header; `409 {rev}` if someone saved meanwhile. Saves by one person within 10 minutes form one version |
+| GET | `/api/files/{id}/versions` | | `{versions, role, editable}`, newest (current) first |
+| GET | `/api/files/{id}/versions/{vid}` | | Content of one version (`?inline=1` as for the file) |
+| PATCH | `/api/files/{id}/versions/{vid}` | `{"label"}` | Names a version (`null` removes the name); named versions are never removed automatically |
+| POST | `/api/files/{id}/versions/{vid}/restore` | | Makes that version's content a new current version |
+| DELETE | `/api/files/{id}/versions/{vid}` | | Owner only; not the current version |
 | POST | `/api/move` | `{"files":[ids],"folders":[ids],"to":id}` | Bulk move into one folder (`""` = root), in one transaction; `400` if a folder would go into itself or its subfolder |
 | POST | `/api/delete` | `{"files":[ids],"folders":[ids]}` | Move to the trash, folders with everything inside them. Nothing leaves Telegram yet |
 | GET | `/api/people` | | Other accounts, to pick whom to share with |

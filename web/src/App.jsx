@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  Download, FolderInput, FolderOpen, FolderPlus, HardDrive, Images, KeyRound, Link2, LogOut, Pencil, Plus, Search,
+  Download, FilePlus2, FileText, FolderInput, FolderOpen, FolderPlus, HardDrive, Images, KeyRound, Link2, LogOut, Pencil, Plus, Search,
   Trash2, Unlink, Upload, UserCog, UserPlus, Users as UsersIcon, X,
 } from 'lucide-react'
 import { api, fileURL, setGuest, uploadFile } from './api.js'
@@ -188,6 +188,14 @@ export default function App() {
     const name = await askUser({ title: 'Folder baru', input: true, value: 'Folder tanpa judul', confirm: 'Buat' })
     if (name) run(() => api('/api/folders', { method: 'POST', body: { name, parent_id: addTarget() } }))
   }
+  // A new empty Markdown or text document, opened straight in the editor.
+  const newDoc = async kind => {
+    try {
+      const f = await api('/api/documents', { method: 'POST', body: { kind, folder_id: addTarget() } })
+      refresh()
+      setLightbox({ items: [f], start: 0, edit: f.id })
+    } catch (e) { setError(e.message) }
+  }
   const rename = async (type, it) => {
     const name = await askUser({ title: 'Ganti nama', input: true, value: it.name, selectBase: type === 'file', confirm: 'Simpan' })
     if (name && name !== it.name) run(() => api(`/api/${type}s/${it.id}`, { method: 'PATCH', body: { name } }))
@@ -369,6 +377,8 @@ export default function App() {
       at: { x: r.left, y: r.bottom + 6 },
       items: [
         { label: 'Folder baru', icon: FolderPlus, onSelect: newFolder },
+        { label: 'Dokumen Markdown', icon: FileText, onSelect: () => newDoc('md') },
+        { label: 'Dokumen teks', icon: FilePlus2, onSelect: () => newDoc('txt') },
         '-',
         { label: 'Upload file', icon: Upload, onSelect: () => inputRef.current.click() },
       ],
@@ -550,7 +560,8 @@ export default function App() {
       {moving && <MoveDialog items={moving} onMove={to => move(moving, to)} onClose={() => setMoving(null)} />}
       {pwOpen && <PasswordDialog onClose={() => setPwOpen(false)} />}
       {lightbox && <Lightbox items={lightbox.items} start={lightbox.start} onClose={() => setLightbox(null)} onDelete={lightbox.trash ? undefined : !atShared && editable(data?.role) || route.view === 'photos' ? deleteFromLightbox : undefined} onMissing={refresh}
-        readOnly={lightbox.trash}
+        readOnly={lightbox.trash} startEdit={lightbox.edit} onAsk={askUser}
+        canEdit={route.view === 'photos' || (!atShared && editable(data?.role)) || !!lightbox.edit}
         onChanged={refresh} canDownload={canDownload} />}
       {sharing && <ShareDialog target={sharing} me={me} onClose={changed => { setSharing(null); if (changed) refresh() }} onLeft={() => route.view !== 'drive' || refresh()} />}
     </div>

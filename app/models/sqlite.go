@@ -232,4 +232,9 @@ CREATE TABLE IF NOT EXISTS comments (
 	created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 CREATE INDEX IF NOT EXISTS comments_file ON comments(file_id, created_at);
-`
+` + versionsSchema
+
+// sqliteColumns are columns added after SQLite support shipped (see Open).
+var sqliteColumns = []string{
+	`ALTER TABLE files ADD COLUMN updated_at INTEGER`,
+}

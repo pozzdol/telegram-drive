@@ -26,6 +26,7 @@ type File struct {
 	Mime      string  `json:"mime"`
 	CreatedAt int64   `json:"created_at"`
 	TakenAt   *int64  `json:"taken_at"`        // when a photo was taken (EXIF), null if unknown
+	UpdatedAt *int64  `json:"-"`               // last edit of a document in the app (getFile only)
 	Missing   bool    `json:"missing"`         // the message was deleted in Telegram; only the record is left
 	Shared    bool    `json:"shared"`          // shared with at least one other account
 	Comments  int     `json:"comments"`        // how many comments it has

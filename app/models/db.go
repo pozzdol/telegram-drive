@@ -145,6 +145,28 @@ ALTER TABLE folders ADD COLUMN IF NOT EXISTS guest_name text;
 ALTER TABLE uploads ADD COLUMN IF NOT EXISTS guest text;      -- guest session token hash
 ALTER TABLE uploads ADD COLUMN IF NOT EXISTS guest_name text;
 ALTER TABLE uploads ADD COLUMN IF NOT EXISTS link_item uuid;  -- whose link quota it counts against
+` + versionsSchema + `
+-- Documents edited in the app: when the content last changed (NULL = never; created_at then).
+ALTER TABLE files ADD COLUMN IF NOT EXISTS updated_at bigint;
+`
+
+// versionsSchema is the same for both databases (SQLite reads uuid/bigint as TEXT/INTEGER).
+// A document edited in the app keeps its versions here. The newest row is the current version
+// (its msg_id equals files.msg_id); a file never edited has no rows. Saves by the same person
+// within VersionGap of each other update the newest row instead of adding one.
+const versionsSchema = `
+CREATE TABLE IF NOT EXISTS file_versions (
+	id         uuid PRIMARY KEY,
+	file_id    uuid NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+	msg_id     bigint NOT NULL, -- 0 = empty content, no Telegram message
+	size       bigint NOT NULL,
+	created_at bigint NOT NULL, -- when this version started
+	saved_at   bigint NOT NULL, -- its last save
+	saved_by   uuid REFERENCES users(id) ON DELETE SET NULL, -- NULL for a guest
+	guest_name text,
+	label      text             -- named version: never removed automatically
+);
+CREATE INDEX IF NOT EXISTS file_versions_file ON file_versions(file_id, created_at);
 `
 
 // SQLite reports whether the database is SQLite (DATABASE_URL sqlite:…) rather than PostgreSQL.
@@ -173,6 +195,15 @@ func Open(url string) (*sql.DB, error) {
 	}
 	if _, err := db.Exec(ddl); err != nil {
 		return nil, fmt.Errorf("create schema: %w", err)
+	}
+	if SQLite {
+		// SQLite has no ADD COLUMN IF NOT EXISTS: add columns newer than the first release and
+		// ignore the error from a database that has them already.
+		for _, q := range sqliteColumns {
+			if _, err := db.Exec(q); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+				return nil, fmt.Errorf("update schema: %w", err)
+			}
+		}
 	}
 	return db, nil
 }

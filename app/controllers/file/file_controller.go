@@ -35,8 +35,8 @@ func (c Controller) getFile(w http.ResponseWriter, r *http.Request, uid string, 
 		utils.WriteErr(w, http.StatusNotFound, "file not found")
 		return f, 0, false
 	}
-	err := c.DB.QueryRow(`SELECT id, folder_id, name, size, mime, created_at, msg_id, missing_at IS NOT NULL FROM files WHERE id = $1`,
-		id).Scan(&f.ID, &f.FolderID, &f.Name, &f.Size, &f.Mime, &f.CreatedAt, &msgID, &f.Missing)
+	err := c.DB.QueryRow(`SELECT id, folder_id, name, size, mime, created_at, msg_id, missing_at IS NOT NULL, updated_at FROM files WHERE id = $1`,
+		id).Scan(&f.ID, &f.FolderID, &f.Name, &f.Size, &f.Mime, &f.CreatedAt, &msgID, &f.Missing, &f.UpdatedAt)
 	if err != nil {
 		utils.WriteErr(w, http.StatusNotFound, "file not found")
 		return f, 0, false
@@ -61,34 +61,51 @@ func (c Controller) Download(w http.ResponseWriter, r *http.Request, uid string)
 	if !ok {
 		return
 	}
-	rs, err := c.TG.Open(r.Context(), msgID, 8)
-	if err != nil {
-		c.openFailed(w, f.ID, err)
-		return
+	modified := f.CreatedAt
+	if f.UpdatedAt != nil {
+		modified = *f.UpdatedAt
+		w.Header().Set("Cache-Control", "no-cache") // edited in the app: never show an old copy
 	}
-	disp := "attachment"
-	if r.URL.Query().Get("inline") == "1" && inlineSafe(f.Mime) {
-		disp = "inline"
-	}
+	w.Header().Set(revHeader, strconv.Itoa(msgID))
+	c.serve(w, r, f, msgID, modified)
+}
+
+// serve sends the content of message msgID (0 = empty) as file f.
+func (c Controller) serve(w http.ResponseWriter, r *http.Request, f models.File, msgID int, modified int64) {
 	// Previews (?inline=1) still work: turning downloads off only hides the download button and
 	// refuses plain downloads, it cannot stop someone saving what their browser shows.
 	if g := models.GuestFrom(r.Context()); g != nil && g.NoDownload && g.Role < models.Editor && r.URL.Query().Get("inline") != "1" {
 		utils.WriteErr(w, http.StatusForbidden, "downloads are turned off for this link")
 		return
 	}
+	var rs io.ReadSeeker = bytes.NewReader(nil)
+	if msgID != 0 {
+		var err error
+		if rs, err = c.TG.Open(r.Context(), msgID, 8); err != nil {
+			c.openFailed(w, f.ID, err)
+			return
+		}
+	}
+	disp := "attachment"
+	if r.URL.Query().Get("inline") == "1" && inlineSafe(f.Mime) {
+		disp = "inline"
+	}
 	w.Header().Set("Content-Type", f.Mime)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	// Even if a type slips past inlineSafe, a file opened from the API origin cannot run scripts.
 	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'")
 	w.Header().Set("Content-Disposition", mime.FormatMediaType(disp, map[string]string{"filename": f.Name}))
-	http.ServeContent(w, r, f.Name, time.Unix(f.CreatedAt, 0), rs)
+	http.ServeContent(w, r, f.Name, time.Unix(modified, 0), rs)
 }
 
+// deleteMessages deletes Telegram messages, 100 per call (Telegram's limit).
 func (c Controller) deleteMessages(ctx context.Context, msgs []int) error {
-	if len(msgs) == 0 {
-		return nil
+	for start := 0; start < len(msgs); start += 100 {
+		if err := c.TG.Delete(ctx, msgs[start:min(start+100, len(msgs))]...); err != nil {
+			return err
+		}
 	}
-	return c.TG.Delete(ctx, msgs...)
+	return nil
 }
 
 // openFailed answers a failed Telegram read. A deleted message is recorded on the file and
@@ -151,7 +168,7 @@ func (c Controller) WatchMissing(interval time.Duration) {
 }
 
 func (c Controller) checkAll() (missing int, err error) {
-	rows, err := c.DB.Query(`SELECT id, msg_id FROM files ORDER BY id`)
+	rows, err := c.DB.Query(`SELECT id, msg_id FROM files WHERE msg_id <> 0 ORDER BY id`)
 	if err != nil {
 		return 0, err
 	}
