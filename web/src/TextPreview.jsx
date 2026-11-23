@@ -5,7 +5,7 @@ import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { Pencil } from 'lucide-react'
-import { fileURL } from './api.js'
+import { fileURL, pictureURL } from './api.js'
 import { fmtSize } from './ui.jsx'
 import { ConflictBanner, SaveStatus, useAutosave } from './autosave.jsx'
 import { richSupported } from './markdown.js'
@@ -23,7 +23,14 @@ DOMPurify.addHook('afterSanitizeAttributes', node => {
   }
 })
 
-const renderMarkdown = text => DOMPurify.sanitize(marked.parse(text, { gfm: true }), { USE_PROFILES: { html: true } })
+// Pictures linked by relative path load through the document (see pictureURL).
+const renderMarkdown = (text, docId) => {
+  const frag = DOMPurify.sanitize(marked.parse(text, { gfm: true }), { USE_PROFILES: { html: true }, RETURN_DOM_FRAGMENT: true })
+  frag.querySelectorAll('img').forEach(img => img.setAttribute('src', pictureURL(docId, img.getAttribute('src') || '')))
+  const box = document.createElement('div')
+  box.appendChild(frag)
+  return box.innerHTML
+}
 
 // src: another URL to read (an old version), shown read-only. canEdit: the user may edit.
 // startEditing: a new document opens straight in the editor. onSaved: after the first save.
@@ -95,7 +102,7 @@ export default function TextPreview({ file, markdown, onMissing, src, canEdit, s
       )}
       {!state.text && <p className="muted">Dokumen ini masih kosong.</p>}
       {markdown && !raw
-        ? <article className="md-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(state.text) }} />
+        ? <article className="md-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(state.text, file.id) }} />
         : <pre className="txt-body">{state.text}</pre>}
     </div>
   )

@@ -87,6 +87,9 @@ func New(a *app.App) http.Handler {
 	mux.HandleFunc("PATCH /api/files/{id}/versions/{vid}", guestOK(fileC.VersionLabel))
 	mux.HandleFunc("POST /api/files/{id}/versions/{vid}/restore", guestOK(fileC.VersionRestore))
 	mux.HandleFunc("DELETE /api/files/{id}/versions/{vid}", guestOK(fileC.VersionDelete))
+	mux.HandleFunc("GET /api/files/{id}/assets", guestOK(fileC.Assets))
+	mux.HandleFunc("POST /api/files/{id}/assets", guestOK(fileC.CreateAssets))
+	mux.HandleFunc("GET /api/files/{id}/asset", guestOK(fileC.Asset)) // ?path=<doc>.assets/<picture>
 	mux.HandleFunc("POST /api/files/{id}/live/ticket", guestOK(liveC.Ticket))
 	mux.HandleFunc("GET /api/files/{id}/live", liveC.Serve) // WebSocket; the ticket is the auth
 

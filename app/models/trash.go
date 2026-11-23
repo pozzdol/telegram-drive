@@ -47,6 +47,16 @@ func Trash(ctx context.Context, db *sql.DB, by any, files, folders []string) (nf
 	}
 	n, _ := res.RowsAffected()
 	nf += n
+	// A document's pictures go with it, in its group.
+	for _, q := range []string{
+		`UPDATE folders SET trashed_at = $2, trash_id = assets_of, trashed_by = $3 WHERE assets_of = ANY($1::uuid[]) AND trashed_at IS NULL`,
+		`UPDATE files SET trashed_at = $2, trash_id = (SELECT assets_of FROM folders d WHERE d.id = files.folder_id), trashed_by = $3
+			WHERE trashed_at IS NULL AND folder_id IN (SELECT id FROM folders WHERE assets_of = ANY($1::uuid[]))`,
+	} {
+		if _, err := tx.Exec(q, files, now, by); err != nil {
+			return 0, 0, err
+		}
+	}
 	return nf, nd, tx.Commit()
 }
 

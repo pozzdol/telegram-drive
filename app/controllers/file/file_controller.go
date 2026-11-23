@@ -356,6 +356,10 @@ func (c Controller) BulkMove(w http.ResponseWriter, r *http.Request, uid string)
 		utils.ServerErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	if _, err := tx.Exec(`UPDATE folders SET parent_id = $1 WHERE assets_of = ANY($2::uuid[])`, ref, req.Files); err != nil {
+		utils.ServerErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	folders, err := tx.Exec(`UPDATE folders SET parent_id = $1 WHERE id = ANY($2::uuid[]) AND trashed_at IS NULL`, ref, req.Folders)
 	if err != nil {
 		utils.ServerErr(w, http.StatusInternalServerError, err)
@@ -385,7 +389,7 @@ func (c Controller) Media(w http.ResponseWriter, r *http.Request, uid string) {
 		after = ` AND (` + key + `) < (SELECT ` + key + ` FROM files WHERE id = $3::uuid)`
 	}
 	files, err := models.QueryFiles(c.DB, `SELECT `+models.FileColumns+` FROM files
-		WHERE user_id = $1 AND trashed_at IS NULL AND (mime LIKE 'image/%' OR mime LIKE 'video/%') AND mime <> 'image/svg+xml'`+after+`
+		WHERE user_id = $1 AND trashed_at IS NULL AND (mime LIKE 'image/%' OR mime LIKE 'video/%') AND mime <> 'image/svg+xml' AND `+models.NotInAssets+after+`
 		ORDER BY coalesce(nullif(taken_at, 0), created_at) DESC, id DESC LIMIT $2`, args...)
 	if err != nil {
 		utils.ServerErr(w, http.StatusInternalServerError, err)
@@ -474,6 +478,7 @@ func (c Controller) Update(w http.ResponseWriter, r *http.Request, uid string) {
 		}
 		ref, _ := models.FolderRef(r.Context(), c.DB, uid, *req.FolderID, models.Editor)
 		c.DB.Exec(`UPDATE files SET folder_id = $1 WHERE id = $2 AND trashed_at IS NULL`, ref, f.ID)
+		c.DB.Exec(`UPDATE folders SET parent_id = $1 WHERE assets_of = $2`, ref, f.ID) // its pictures go with it
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -51,6 +51,9 @@ If the server restarts while sending, the upload is resumed automatically at sta
 | PATCH | `/api/files/{id}/versions/{vid}` | `{"label"}` | Names a version (`null` removes the name); named versions are never removed automatically |
 | POST | `/api/files/{id}/versions/{vid}/restore` | | Makes that version's content a new current version |
 | DELETE | `/api/files/{id}/versions/{vid}` | | Owner only; not the current version |
+| GET | `/api/files/{id}/assets` | | A document's hidden pictures folder: `{folder_id, name, files}` (`folder_id` null until the first picture) |
+| POST | `/api/files/{id}/assets` | | The same, creating the folder (editors); upload pictures into `folder_id` |
+| GET | `/api/files/{id}/asset?path=<folder>/<name>` | | A picture of the document by the relative path its Markdown uses |
 | POST | `/api/files/{id}/live/ticket` | | Editors. `{ticket}`: one use, valid a minute, for the WebSocket below |
 | GET | `/api/files/{id}/live?t=<ticket>` | | WebSocket for editing a document together (Yjs updates relayed and stored). Frames are described in `app/controllers/live/live.go` |
 | POST | `/api/move` | `{"files":[ids],"folders":[ids],"to":id}` | Bulk move into one folder (`""` = root), in one transaction; `400` if a folder would go into itself or its subfolder |

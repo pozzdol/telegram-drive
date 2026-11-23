@@ -10,19 +10,30 @@ import { Markdown } from '@tiptap/markdown'
 import { TaskItem, TaskList } from '@tiptap/extension-list'
 import { TableKit } from '@tiptap/extension-table'
 import { Placeholder } from '@tiptap/extensions'
+import Image from '@tiptap/extension-image'
+import { mergeAttributes } from '@tiptap/core'
 import Collaboration from '@tiptap/extension-collaboration'
 import CollaborationCaret from '@tiptap/extension-collaboration-caret'
 import {
-  Bold, Check, Code, FileCode2, Italic, Link2, List, ListOrdered, ListTodo, Minus, Quote, Redo2, SquareCode,
+  Bold, Check, Code, ImagePlus, FileCode2, Italic, Link2, List, ListOrdered, ListTodo, Minus, Quote, Redo2, SquareCode,
   Strikethrough, Table, Undo2, WifiOff,
 } from 'lucide-react'
-import { saveContent } from './api.js'
+import { api, pictureURL, saveContent, uploadFile } from './api.js'
 import { ConflictBanner, SaveStatus, useAutosave } from './autosave.jsx'
 import { Live } from './live.js'
 import { richSupported, splitFrontMatter, tidy } from './markdown.js'
 import { Dropdown } from './ui.jsx'
 
-const base = ({ undo }) => [
+// Pictures keep their relative path (notes.md.assets/photo.png) in the document and in the
+// Markdown; only what the page shows goes through the document's picture URL.
+const Picture = Image.extend({
+  addOptions() { return { ...this.parent?.(), docId: '' } },
+  renderHTML({ HTMLAttributes }) {
+    return ['img', mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, { src: pictureURL(this.options.docId, HTMLAttributes.src) })]
+  },
+})
+
+const base = ({ undo, docId }) => [
   StarterKit.configure({
     underline: false, // Markdown has no underline
     undoRedo: undo ? {} : false, // live: Yjs keeps the undo history (only your own changes)
@@ -32,8 +43,76 @@ const base = ({ undo }) => [
   TaskItem.configure({ nested: true }),
   TableKit.configure({ table: { resizable: false } }),
   Placeholder.configure({ placeholder: 'Mulai menulis…' }),
+  Picture.configure({ docId }),
   Markdown,
 ]
+
+const MAX_PICTURE = 20 * 1024 * 1024
+
+// Adding pictures: upload into the document's pictures folder (made on first use), then insert
+// them where they were dropped or at the cursor. Names that are taken get " (2)", " (3)"…
+function usePictures(file, ed) {
+  const [busy, setBusy] = useState(0)
+  const [err, setErr] = useState('')
+  const add = async (list, pos) => {
+    const pics = [...list].filter(f => f.type.startsWith('image/'))
+    if (!pics.length) return false
+    setErr('')
+    if (pics.some(f => f.size > MAX_PICTURE)) { setErr('Gambar maksimal 20 MB.'); return true }
+    setBusy(n => n + pics.length)
+    try {
+      const a = await api(`/api/files/${file.id}/assets`, { method: 'POST' })
+      const taken = new Set(a.files)
+      for (const f of pics) {
+        let name = /^image\.\w+$/.test(f.name) ? f.name.replace(/^image/, 'gambar') : f.name // pasted from the clipboard
+        const [stem, ext] = /^(.*?)(\.[^.]*)?$/.exec(name).slice(1)
+        for (let i = 2; taken.has(name); i++) name = `${stem} (${i})${ext || ''}`
+        taken.add(name)
+        await uploadFile(new File([f], name, { type: f.type }), a.folder_id, () => {})
+        const src = `${encodeURI(a.name)}/${encodeURI(name)}`
+        const node = { type: 'image', attrs: { src, alt: stem } }
+        const c = ed.current.chain().focus()
+        ;(pos != null ? c.insertContentAt(pos, node) : c.insertContent(node)).run()
+        setBusy(n => n - 1)
+      }
+    } catch (e) {
+      setErr(`Gagal menambah gambar: ${e.message}`)
+      setBusy(0)
+    }
+    return true
+  }
+  const pick = () => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = 'image/*'
+    input.multiple = true
+    input.onchange = () => add(input.files)
+    input.click()
+  }
+  return { busy, err, add, pick }
+}
+
+// Paste and drop of picture files go to usePictures; everything else is the editor's.
+const pictureProps = pics => ({
+  handlePaste: (view, e) => {
+    const files = [...(e.clipboardData?.files || [])]
+    if (!files.some(f => f.type.startsWith('image/'))) return false
+    pics.current.add(files)
+    return true
+  },
+  handleDrop: (view, e, slice, moved) => {
+    const files = [...(e.dataTransfer?.files || [])]
+    if (moved || !files.some(f => f.type.startsWith('image/'))) return false
+    pics.current.add(files, view.posAtCoords({ left: e.clientX, top: e.clientY })?.pos)
+    return true
+  },
+})
+
+function PictureStatus({ pics }) {
+  if (pics.err) return <p className="err small" role="alert">{pics.err}</p>
+  if (pics.busy) return <p className="muted small" role="status">Mengupload {pics.busy} gambar…</p>
+  return null
+}
 
 const STYLES = [
   { value: 'p', label: 'Teks biasa' },
@@ -57,7 +136,7 @@ const B = ({ on, label, icon: I, onClick, disabled }) => (
   </button>
 )
 
-function Toolbar({ editor, onAsk }) {
+function Toolbar({ editor, onAsk, onPicture }) {
   const st = useEditorState({
     editor,
     selector: ({ editor: e }) => e && {
@@ -105,6 +184,7 @@ function Toolbar({ editor, onAsk }) {
         <B label="Blok kode" icon={SquareCode} on={st.codeBlock} onClick={run(c => c.toggleCodeBlock())} />
         <B label="Tabel" icon={Table} on={st.table} onClick={run(c => c.insertTable({ rows: 3, cols: 3, withHeaderRow: true }))} />
         <B label="Garis pemisah" icon={Minus} onClick={run(c => c.setHorizontalRule())} />
+        <B label="Gambar (atau tempel/seret ke sini)" icon={ImagePlus} onClick={onPicture} />
       </fieldset>
       {st.table && st.editable && (
         <div className="doc-tools doc-table-tools" role="toolbar" aria-label="Tabel">
@@ -137,7 +217,7 @@ function useSource({ editor, frontRef }) {
   return { source, setSource, err, open, close }
 }
 
-const editorProps = file => ({ attributes: { class: 'md-body doc-rich', 'aria-label': `Isi ${file.name}`, spellcheck: 'true' } })
+const editorProps = (file, pics) => ({ attributes: { class: 'md-body doc-rich', 'aria-label': `Isi ${file.name}`, spellcheck: 'true' }, ...pictureProps(pics) })
 
 // ---- live: together with everyone who has it open ----
 
@@ -147,6 +227,7 @@ function LiveEditor({ file, initial, onSaved, onAsk, autoFocus, onFail, onReset 
   const [, rerender] = useState(0)
   const ed = useRef(null)
   const save = useRef({ timer: 0, since: 0, busy: false, savedOnce: false, error: false })
+  const picsRef = useRef(null)
   const [live] = useState(() => new Live(file.id, {
     seed: () => ed.current.commands.setContent(body, { contentType: 'markdown' }),
     hello: (first, m) => {
@@ -160,14 +241,16 @@ function LiveEditor({ file, initial, onSaved, onAsk, autoFocus, onFail, onReset 
   }))
   const editor = useEditor({
     extensions: [
-      ...base({ undo: false }),
+      ...base({ undo: false, docId: file.id }),
       Collaboration.configure({ document: live.doc }),
       CollaborationCaret.configure({ provider: live, user: { name: '', color: '#868e96' } }),
     ],
     editable: false, // until the document arrives
-    editorProps: editorProps(file),
+    editorProps: editorProps(file, picsRef),
   })
   ed.current = editor
+  const pics = usePictures(file, ed)
+  picsRef.current = pics
   const src = useSource({ editor, frontRef })
 
   // The saver writes the Markdown to Telegram SAVE_IDLE after the last change, at least every SAVE_MAX.
@@ -230,7 +313,7 @@ function LiveEditor({ file, initial, onSaved, onAsk, autoFocus, onFail, onReset 
           <FileCode2 size={16} aria-hidden /> {src.source != null ? 'Tutup sumber' : 'Sumber'}
         </button>
       </div>
-      {src.source == null && <Toolbar editor={editor} onAsk={onAsk} />}
+      {src.source == null && <Toolbar editor={editor} onAsk={onAsk} onPicture={pics.pick} />}
       {src.source != null && (
         <div className="doc-source-bar">
           {others.length
@@ -239,6 +322,7 @@ function LiveEditor({ file, initial, onSaved, onAsk, autoFocus, onFail, onReset 
         </div>
       )}
       {src.err && <p className="err small" role="alert">{src.err}</p>}
+      <PictureStatus pics={pics} />
       {src.source != null && <textarea className="txt-body doc-input" value={src.source} spellCheck={false} readOnly={others.length > 0}
         aria-label={`Sumber Markdown ${file.name}`} onChange={e => src.setSource(e.target.value)} />}
       <EditorContent editor={editor} className="doc-rich-wrap" hidden={src.source != null} />
@@ -251,14 +335,19 @@ function LiveEditor({ file, initial, onSaved, onAsk, autoFocus, onFail, onReset 
 function SoloEditor({ file, initial, rev, onSaved, onAsk, autoFocus }) {
   const [front, body] = splitFrontMatter(initial)
   const frontRef = useRef(front)
+  const picsRef = useRef(null)
   const editor = useEditor({
-    extensions: base({ undo: true }),
+    extensions: base({ undo: true, docId: file.id }),
     content: body,
     contentType: 'markdown',
     autofocus: autoFocus ? 'end' : false,
-    editorProps: editorProps(file),
+    editorProps: editorProps(file, picsRef),
     onUpdate: () => a.changed(),
   })
+  const ed = useRef(null)
+  ed.current = editor
+  const pics = usePictures(file, ed)
+  picsRef.current = pics
   const src = useSource({ editor, frontRef })
   const sourceRef = useRef(null)
   sourceRef.current = src.source
@@ -275,8 +364,9 @@ function SoloEditor({ file, initial, rev, onSaved, onAsk, autoFocus }) {
         </button>
       </div>
       <ConflictBanner status={a.status} onForce={() => a.save(true)} />
-      {src.source == null && <Toolbar editor={editor} onAsk={onAsk} />}
+      {src.source == null && <Toolbar editor={editor} onAsk={onAsk} onPicture={pics.pick} />}
       {src.err && <p className="err small" role="alert">{src.err}</p>}
+      <PictureStatus pics={pics} />
       {src.source != null && <textarea className="txt-body doc-input" value={src.source} spellCheck={false} aria-label={`Sumber Markdown ${file.name}`}
         onChange={e => { src.setSource(e.target.value); sourceRef.current = e.target.value; a.changed() }} />}
       <EditorContent editor={editor} className="doc-rich-wrap" hidden={src.source != null} />

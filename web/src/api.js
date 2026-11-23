@@ -46,6 +46,14 @@ export async function saveContent(id, rev, text, { liveSeq, keepalive } = {}) {
 
 // WebSocket URL of an API path, on the API's host.
 export const wsURL = path => (BASE || location.origin).replace(/^http/, 'ws') + path
+// A picture a document links by relative path (notes.md.assets/photo.png), served through the
+// document. Absolute URLs pass through unchanged (the page's CSP decides whether they load).
+export const pictureURL = (docId, src) => {
+  if (!src || /^([a-z][a-z0-9+.-]*:|\/|#)/i.test(src)) return src
+  let path = src
+  try { path = decodeURI(src) } catch { /* keep as written */ }
+  return withGuest(`${BASE}/api/files/${docId}/asset?path=${encodeURIComponent(path)}&inline=1`)
+}
 export const versionURL = (id, vid, inline) => withGuest(`${BASE}/api/files/${id}/versions/${vid}${inline ? '?inline=1' : ''}`)
 export const fileURL = (id, inline) => withGuest(`${BASE}/api/files/${id}${inline ? '?inline=1' : ''}`)
 // ?v= keeps the browser's immutable cache honest if a deleted file's id is ever reused.

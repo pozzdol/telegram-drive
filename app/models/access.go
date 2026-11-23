@@ -46,13 +46,13 @@ func Access(ctx context.Context, db *sql.DB, uid, kind, id string) (Role, error)
 		return None, ErrNoAccess
 	}
 	var owner string
-	var parent *string
+	var parent, doc *string
 	var trashed bool
-	q := `SELECT user_id, parent_id, trashed_at IS NOT NULL FROM folders WHERE id = $1`
+	q := `SELECT user_id, parent_id, trashed_at IS NOT NULL, assets_of FROM folders WHERE id = $1`
 	if kind == "file" {
-		q = `SELECT user_id, folder_id, trashed_at IS NOT NULL FROM files WHERE id = $1`
+		q = `SELECT user_id, folder_id, trashed_at IS NOT NULL, NULL FROM files WHERE id = $1`
 	}
-	if err := db.QueryRowContext(ctx, q, id).Scan(&owner, &parent, &trashed); err != nil {
+	if err := db.QueryRowContext(ctx, q, id).Scan(&owner, &parent, &trashed, &doc); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return None, ErrNoAccess
 		}
@@ -67,18 +67,27 @@ func Access(ctx context.Context, db *sql.DB, uid, kind, id string) (Role, error)
 	}
 	best := None
 	ids := []string{id}
+	// A document's pictures folder (assets_of) is reached through the document as well, so a
+	// share or link on the document covers its pictures.
+	if doc != nil {
+		ids = append(ids, *doc)
+	}
 	if parent != nil {
-		rows, err := db.QueryContext(ctx, `WITH RECURSIVE up(id, parent_id, user_id) AS (
-				SELECT id, parent_id, user_id FROM folders WHERE id = $1
-				UNION ALL SELECT f.id, f.parent_id, f.user_id FROM folders f JOIN up ON f.id = up.parent_id
-			) SELECT id, user_id FROM up`, *parent)
+		rows, err := db.QueryContext(ctx, `WITH RECURSIVE up(id, parent_id, user_id, assets_of) AS (
+				SELECT id, parent_id, user_id, assets_of FROM folders WHERE id = $1
+				UNION ALL SELECT f.id, f.parent_id, f.user_id, f.assets_of FROM folders f JOIN up ON f.id = up.parent_id
+			) SELECT id, user_id, assets_of FROM up`, *parent)
 		if err != nil {
 			return None, err
 		}
 		for rows.Next() {
 			var fid, fowner string
-			rows.Scan(&fid, &fowner)
+			var fdoc *string
+			rows.Scan(&fid, &fowner, &fdoc)
 			ids = append(ids, fid)
+			if fdoc != nil {
+				ids = append(ids, *fdoc)
+			}
 			if fowner == uid {
 				best = Editor
 			}

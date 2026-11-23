@@ -237,4 +237,6 @@ CREATE INDEX IF NOT EXISTS comments_file ON comments(file_id, created_at);
 // sqliteColumns are columns added after SQLite support shipped (see Open).
 var sqliteColumns = []string{
 	`ALTER TABLE files ADD COLUMN updated_at INTEGER`,
+	`ALTER TABLE folders ADD COLUMN assets_of TEXT`,
+	`CREATE INDEX IF NOT EXISTS folders_assets ON folders(assets_of) WHERE assets_of IS NOT NULL`,
 }

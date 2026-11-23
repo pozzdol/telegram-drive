@@ -368,3 +368,106 @@ func TestLive(t *testing.T) {
 		t.Fatal("live state kept after an outside save")
 	}
 }
+
+// Pictures of a document: a hidden folder beside it, reachable through the document (also by a
+// link guest of the document), moved and trashed with it, left out of lists and Photos.
+func TestDocAssets(t *testing.T) {
+	db := testDB(t)
+	tg := &fakeTG{msgs: map[int][]byte{}}
+	h := New(&app.App{DB: db, TG: tg, UploadDir: t.TempDir(), ThumbDir: t.TempDir(), MaxUpload: 1 << 30})
+	call := func(auth, method, path, body string) (int, map[string]any, []byte) {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		if strings.HasPrefix(body, "{") {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		if k, v, ok := strings.Cut(auth, ":"); ok {
+			req.Header.Set(k, v)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		var out map[string]any
+		json.Unmarshal(rec.Body.Bytes(), &out)
+		return rec.Code, out, rec.Body.Bytes()
+	}
+	expect := func(want, got int, what string) {
+		t.Helper()
+		if got != want {
+			t.Fatalf("%s: want %d, got %d", what, want, got)
+		}
+	}
+	call("", "POST", "/api/auth/register", `{"username":"ayah","password":"rahasia123"}`)
+	_, out, _ := call("", "POST", "/api/auth/login", `{"username":"ayah","password":"rahasia123"}`)
+	a := "Authorization:Bearer " + out["token"].(string)
+	_, out, _ = call(a, "POST", "/api/folders", `{"name":"Catatan"}`)
+	dir := out["id"].(string)
+	_, out, _ = call(a, "POST", "/api/documents", `{"kind":"md","name":"resep","folder_id":"`+dir+`"}`)
+	doc := out["id"].(string)
+
+	code, out, _ := call(a, "GET", "/api/files/"+doc+"/assets", "")
+	if code != 200 || out["folder_id"] != nil || out["name"] != "resep.md.assets" {
+		t.Fatalf("no pictures yet: %d %v", code, out)
+	}
+	_, out, _ = call(a, "POST", "/api/files/"+doc+"/assets", "")
+	assets := out["folder_id"].(string)
+	_, out, _ = call(a, "POST", "/api/files/"+doc+"/assets", "")
+	if out["folder_id"] != assets {
+		t.Fatal("a second call made another pictures folder")
+	}
+	// A picture in it (uploads need Telegram; the row is what matters here).
+	tg.msgs[99] = []byte("PNGDATA")
+	const pic = "0190a000-0000-7000-8000-0000000000d1"
+	if _, err := db.Exec(`INSERT INTO files (id, user_id, folder_id, name, size, mime, msg_id) SELECT $1, user_id, $2, 'kue.png', 7, 'image/png', 99 FROM folders WHERE id = $2`, pic, assets); err != nil {
+		t.Fatal(err)
+	}
+	_, out, _ = call(a, "GET", "/api/list?folder_id="+dir, "")
+	if len(out["folders"].([]any)) != 0 || len(out["files"].([]any)) != 1 {
+		t.Fatalf("the pictures folder shows in the list: %v", out)
+	}
+	_, out, _ = call(a, "GET", "/api/media", "")
+	if len(out["files"].([]any)) != 0 {
+		t.Fatalf("a document's picture shows in Photos: %v", out)
+	}
+	code, _, body := call(a, "GET", "/api/files/"+doc+"/asset?path=resep.md.assets/kue.png&inline=1", "")
+	if code != 200 || string(body) != "PNGDATA" {
+		t.Fatalf("picture by path: %d %q", code, body)
+	}
+	code, _, _ = call(a, "GET", "/api/files/"+doc+"/asset?path=lain.assets/kue.png", "")
+	expect(404, code, "picture outside the document's folder")
+
+	// A link guest of the document alone may add pictures and see them.
+	_, out, _ = call(a, "PUT", "/api/links/"+doc, `{"enabled":true,"role":"editor","require_name":false}`)
+	_, out, _ = call("", "POST", "/api/s/"+out["token"].(string)+"/session", `{}`)
+	g := "X-Guest:" + out["guest"].(string)
+	code, _, _ = call(g, "GET", "/api/files/"+doc+"/asset?path=resep.md.assets/kue.png", "")
+	expect(200, code, "guest reads a picture")
+	code, _, _ = call(g, "POST", "/api/uploads", `{"name":"foto.jpg","size":5,"mime":"image/jpeg","folder_id":"`+assets+`"}`)
+	expect(201, code, "guest uploads into the pictures folder")
+	code, _, _ = call(g, "POST", "/api/uploads", `{"name":"foto.jpg","size":5,"mime":"image/jpeg","folder_id":"`+dir+`"}`)
+	expect(404, code, "guest uploads beside the document")
+
+	// Moves and the trash take the pictures along.
+	expect(204, func() int { c, _, _ := call(a, "PATCH", "/api/files/"+doc, `{"folder_id":""}`); return c }(), "move to root")
+	var parent *string
+	db.QueryRow(`SELECT parent_id FROM folders WHERE id = $1`, assets).Scan(&parent)
+	if parent != nil {
+		t.Fatal("pictures folder did not follow the document")
+	}
+	call(a, "POST", "/api/delete", `{"files":["`+doc+`"]}`)
+	_, out, _ = call(a, "GET", "/api/trash", "")
+	if items := out["items"].([]any); len(items) != 1 {
+		t.Fatalf("trash lists more than the document: %v", items)
+	}
+	call(a, "POST", "/api/trash/restore", `{"ids":["`+doc+`"]}`)
+	code, _, _ = call(a, "GET", "/api/files/"+pic, "")
+	expect(200, code, "picture back after restore")
+	call(a, "POST", "/api/delete", `{"files":["`+doc+`"]}`)
+	call(a, "POST", "/api/trash/purge", `{"ids":["`+doc+`"]}`)
+	if _, ok := tg.msgs[99]; ok {
+		t.Fatal("picture still in Telegram after purge")
+	}
+	var n int
+	db.QueryRow(`SELECT count(*) FROM folders WHERE id = $1`, assets).Scan(&n)
+	if n != 0 {
+		t.Fatal("pictures folder left after purge")
+	}
+}

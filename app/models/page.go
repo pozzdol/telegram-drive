@@ -81,6 +81,10 @@ func page(table, cols, where string, args []any, sort, after string, limit int) 
 	return q, args
 }
 
+// NotInAssets leaves out the pictures of documents (files in an assets folder): lists, search
+// and Photos show the document, not its pictures.
+const NotInAssets = `(folder_id IS NULL OR folder_id NOT IN (SELECT id FROM folders WHERE assets_of IS NOT NULL))`
+
 // ListPage returns one page of folders then files matching the two WHERE clauses (which share
 // args), and the token for the next page ("" at the end).
 func ListPage(db *sql.DB, folderWhere, fileWhere string, args []any, sort, token string, limit int) ([]Folder, []File, string, error) {
@@ -96,7 +100,7 @@ func ListPage(db *sql.DB, folderWhere, fileWhere string, args []any, sort, token
 		if cur.Phase == "d" {
 			after = cur.ID
 		}
-		q, a := page("folders", FolderColumns, folderWhere, append([]any{}, args...), sort, after, limit+1)
+		q, a := page("folders", FolderColumns, "("+folderWhere+") AND assets_of IS NULL", append([]any{}, args...), sort, after, limit+1)
 		if folders, err = QueryFolders(db, q, a...); err != nil {
 			return nil, nil, "", err
 		}
@@ -110,7 +114,7 @@ func ListPage(db *sql.DB, folderWhere, fileWhere string, args []any, sort, token
 	if room == 0 { // the page ended exactly with the last folder: files start on the next one
 		return folders, files, Cursor{Phase: "f", Sort: sort}.Token(), nil
 	}
-	q, a := page("files", FileColumns, fileWhere, append([]any{}, args...), sort, cur.ID, room+1)
+	q, a := page("files", FileColumns, "("+fileWhere+") AND "+NotInAssets, append([]any{}, args...), sort, cur.ID, room+1)
 	if files, err = QueryFiles(db, q, a...); err != nil {
 		return nil, nil, "", err
 	}

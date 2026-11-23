@@ -148,6 +148,9 @@ ALTER TABLE uploads ADD COLUMN IF NOT EXISTS link_item uuid;  -- whose link quot
 ` + versionsSchema + strings.ReplaceAll(liveSchema, "BYTES", "bytea") + `
 -- Documents edited in the app: when the content last changed (NULL = never; created_at then).
 ALTER TABLE files ADD COLUMN IF NOT EXISTS updated_at bigint;
+-- A document's pictures folder (<name>.assets): hidden from listings, reached through the document.
+ALTER TABLE folders ADD COLUMN IF NOT EXISTS assets_of uuid;
+CREATE INDEX IF NOT EXISTS folders_assets ON folders(assets_of) WHERE assets_of IS NOT NULL;
 `
 
 // versionsSchema is the same for both databases (SQLite reads uuid/bigint as TEXT/INTEGER).

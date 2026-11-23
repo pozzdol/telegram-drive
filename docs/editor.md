@@ -1,6 +1,6 @@
 # Document editor: Markdown and text, edited together
 
-Status: **stages 1-3 implemented (versions, new documents, the rich editor, editing together); stage 4 (images) is a draft.** This document describes editing `.md` and `.txt` files inside
+Status: **implemented** (all four stages). Section 5 "As built" and the API table list where the code differs from the first draft. This document describes editing `.md` and `.txt` files inside
 Telegram Drive, by several people at once, with autosave and version history. Comments and changes are
 welcome before any code is written.
 
@@ -261,8 +261,10 @@ autosave (an **Edit** button on the preview).
 - Name clashes get a suffix (`foto (2).png`).
 - Renaming the document does **not** rename the folder: links keep working, and the folder is hidden
   anyway. Moving the document moves its assets folder with it.
-- The editor resolves relative image paths through `GET /api/files/{id}/assets` (name → file id) and
-  shows them from the normal download URL, with the guest token where needed.
+- The editor and the preview show a relative picture path through
+  `GET /api/files/{id}/asset?path=<folder>/<picture>`: only the document's own pictures folder is
+  reachable, and anyone who may open the document may see its pictures (also a link guest of the
+  document alone). The document keeps the relative path.
 - Link guests' image uploads count towards the link's upload quota, like any guest upload.
 
 ### New document
@@ -288,7 +290,9 @@ not get heavier. Libraries are pinned to exact versions at least two weeks old.
 | `PATCH` | `/api/files/{id}/versions/{vid}` | editor | Name or unname a version |
 | `POST` | `/api/files/{id}/versions/{vid}/restore` | editor | Restore a version |
 | `DELETE` | `/api/files/{id}/versions/{vid}` | owner | Delete a version |
-| `GET` | `/api/files/{id}/assets` | viewer | Image name → file id for the editor |
+| `GET` | `/api/files/{id}/assets` | viewer | The pictures folder (`folder_id`, `name`) and the names in it |
+| `POST` | `/api/files/{id}/assets` | editor | The same, creating the folder on first use |
+| `GET` | `/api/files/{id}/asset?path=` | viewer | A picture by the relative path the Markdown uses |
 
 All take the guest header like the other `guestOK` routes. Every save, restore and version delete
 goes to `access_log`.

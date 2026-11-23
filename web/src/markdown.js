@@ -20,6 +20,6 @@ export function splitFrontMatter(text) {
 }
 
 // The editor writes extra blank lines around some blocks (tables); keep at most one, except
-// inside code blocks.
+// inside code blocks, and end with one newline.
 export const tidy = md => md.split(/(^(?:```|~~~)[^\n]*\n[\s\S]*?^(?:```|~~~)[ \t]*$)/m)
-  .map((part, i) => (i % 2 ? part : part.replace(/\n{3,}/g, '\n\n'))).join('')
+  .map((part, i) => (i % 2 ? part : part.replace(/\n{3,}/g, '\n\n'))).join('').replace(/\s*$/, '\n')
