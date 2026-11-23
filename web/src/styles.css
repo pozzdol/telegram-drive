@@ -831,7 +831,6 @@ dialog.sheet .link-copy input, dialog.sheet .link-pw input { flex: 1; min-width:
 .doc-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-bottom: var(--space-xs); padding: 2px; border-radius: var(--radius-sm); background: var(--color-paper-2); position: sticky; top: calc(var(--space-md) * -1); z-index: 1; }
 .doc-tools .icon-btn { width: 36px; height: 36px; color: var(--color-ink-2); }
 .doc-tools .icon-btn[aria-pressed="true"] { background: var(--color-accent-soft); color: var(--color-accent-soft-ink); }
-.doc-tools .icon-btn:disabled { opacity: 0.4; }
 .doc-tools .lb-sep { width: 1px; height: 20px; margin: 0 4px; background: var(--color-rule); }
 .doc-tools .dropdown { height: 36px; }
 .doc-table-tools { gap: var(--space-2xs); background: none; position: static; }
@@ -850,8 +849,6 @@ dialog.sheet .link-copy input, dialog.sheet .link-pw input { flex: 1; min-width:
 .doc-rich a { cursor: text; }
 .doc-rich li > p { margin: 0; }
 @media (max-width: 767px) { .doc-tools:not(.doc-table-tools) { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; } .doc-tools > * { flex: none; } }
-fieldset.doc-tools { border: 0; min-inline-size: 0; margin: 0 0 var(--space-xs); }
-fieldset.doc-tools:disabled { opacity: 0.6; }
 .doc-people { display: flex; list-style: none; margin: 0 0 0 auto; padding: 0; }
 .doc-people li {
   display: grid; place-items: center; width: 28px; height: 28px; margin-left: -6px; border-radius: 50%;
@@ -866,3 +863,7 @@ fieldset.doc-tools:disabled { opacity: 0.6; }
   color: #fff; font-size: 12px; font-weight: 600; line-height: 1.3; user-select: none; pointer-events: none;
 }
 .doc-rich img { display: block; max-width: 100%; height: auto; border-radius: var(--radius-sm); } .doc-rich img.ProseMirror-selectednode { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.doc-tools [role="group"] { display: flex; flex: none; gap: 2px; }
+.doc-tools .icon-btn[aria-disabled="true"] { opacity: 0.4; cursor: default; }
+.doc-tools[aria-disabled="true"] { opacity: 0.6; }
+.doc-tools .icon-btn:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }

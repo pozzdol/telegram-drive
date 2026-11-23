@@ -129,12 +129,43 @@ export default function DocEditor(props) {
   return solo ? <SoloEditor {...props} /> : <LiveEditor {...props} onFail={() => setSolo(true)} />
 }
 
-// A toolbar button.
+// A toolbar button. on: a toggle (bold…), left out for actions. Disabled with aria-disabled so
+// it stays reachable with the arrow keys.
 const B = ({ on, label, icon: I, onClick, disabled }) => (
-  <button type="button" className="icon-btn" aria-label={label} data-tip={label} aria-pressed={on} onClick={onClick} disabled={disabled}>
-    <I size={18} />
+  <button type="button" className="icon-btn" aria-label={label} data-tip={label} aria-pressed={on}
+    aria-disabled={disabled || undefined} onClick={disabled ? undefined : onClick}>
+    <I size={18} aria-hidden />
   </button>
 )
+const Sep = () => <span className="lb-sep" role="separator" aria-orientation="vertical" />
+
+// One tab stop for the whole toolbar, arrow keys between its buttons: native focusgroup where the
+// browser has it, otherwise a roving tabindex.
+function useRoving(ref, deps) {
+  useEffect(() => {
+    const bar = ref.current
+    if (!bar || 'focusGroup' in HTMLElement.prototype) return
+    const items = () => [...bar.querySelectorAll('button')]
+    const all = items()
+    if (!all.some(b => b.tabIndex === 0)) all.forEach((b, i) => (b.tabIndex = i ? -1 : 0))
+    else all.forEach(b => { if (b.tabIndex !== 0) b.tabIndex = -1 })
+    const focusin = ({ target }) => { if (items().includes(target)) items().forEach(b => (b.tabIndex = b === target ? 0 : -1)) }
+    const keydown = e => {
+      const list = items()
+      const i = list.indexOf(document.activeElement)
+      if (i < 0) return
+      const rtl = getComputedStyle(bar).direction === 'rtl'
+      const step = { ArrowRight: rtl ? -1 : 1, ArrowLeft: rtl ? 1 : -1 }[e.key]
+      const to = step ? (i + step + list.length) % list.length : e.key === 'Home' ? 0 : e.key === 'End' ? list.length - 1 : -1
+      if (to < 0) return
+      e.preventDefault()
+      list[to].focus()
+    }
+    bar.addEventListener('focusin', focusin)
+    bar.addEventListener('keydown', keydown)
+    return () => { bar.removeEventListener('focusin', focusin); bar.removeEventListener('keydown', keydown) }
+  }, deps) // eslint-disable-line react-hooks/exhaustive-deps
+}
 
 function Toolbar({ editor, onAsk, onPicture }) {
   const st = useEditorState({
@@ -152,6 +183,10 @@ function Toolbar({ editor, onAsk, onPicture }) {
     addEventListener('keydown', key)
     return () => removeEventListener('keydown', key)
   }) // eslint-disable-line react-hooks/exhaustive-deps
+  const bar = useRef(null)
+  const tableBar = useRef(null)
+  useRoving(bar, [!!st])
+  useRoving(tableBar, [st?.table && st?.editable])
   if (!st) return null
   const run = f => () => f(editor.chain().focus()).run()
   async function setLink() {
@@ -164,30 +199,41 @@ function Toolbar({ editor, onAsk, onPicture }) {
   }
   return (
     <>
-      <fieldset className="doc-tools" role="toolbar" aria-label="Format teks" disabled={!st.editable}>
-        <B label="Urungkan (Ctrl+Z)" icon={Undo2} onClick={run(c => c.undo())} disabled={!st.undo} />
-        <B label="Ulangi (Ctrl+Shift+Z)" icon={Redo2} onClick={run(c => c.redo())} disabled={!st.redo} />
-        <span className="lb-sep" aria-hidden />
+      {/* Until the document arrives (live editing), the buttons are there but do nothing. */}
+      <div ref={bar} className="doc-tools" role="toolbar" aria-label="Format teks" focusgroup="toolbar wrap"
+        aria-disabled={!st.editable || undefined} onClickCapture={e => { if (!st.editable) { e.preventDefault(); e.stopPropagation() } }}>
+        <div role="group" aria-label="Riwayat">
+          <B label="Urungkan (Ctrl+Z)" icon={Undo2} onClick={run(c => c.undo())} disabled={!st.undo} />
+          <B label="Ulangi (Ctrl+Shift+Z)" icon={Redo2} onClick={run(c => c.redo())} disabled={!st.redo} />
+        </div>
+        <Sep />
         <Dropdown label="Gaya paragraf" value={st.heading} options={STYLES}
           onChange={v => (v === 'p' ? editor.chain().focus().setParagraph().run() : editor.chain().focus().setHeading({ level: v }).run())} />
-        <span className="lb-sep" aria-hidden />
-        <B label="Tebal (Ctrl+B)" icon={Bold} on={st.bold} onClick={run(c => c.toggleBold())} />
-        <B label="Miring (Ctrl+I)" icon={Italic} on={st.italic} onClick={run(c => c.toggleItalic())} />
-        <B label="Coret" icon={Strikethrough} on={st.strike} onClick={run(c => c.toggleStrike())} />
-        <B label="Kode" icon={Code} on={st.code} onClick={run(c => c.toggleCode())} />
-        <B label="Link (Ctrl+K)" icon={Link2} on={st.link} onClick={setLink} />
-        <span className="lb-sep" aria-hidden />
-        <B label="Daftar berbutir" icon={List} on={st.bullet} onClick={run(c => c.toggleBulletList())} />
-        <B label="Daftar bernomor" icon={ListOrdered} on={st.ordered} onClick={run(c => c.toggleOrderedList())} />
-        <B label="Daftar centang" icon={ListTodo} on={st.task} onClick={run(c => c.toggleTaskList())} />
-        <B label="Kutipan" icon={Quote} on={st.quote} onClick={run(c => c.toggleBlockquote())} />
-        <B label="Blok kode" icon={SquareCode} on={st.codeBlock} onClick={run(c => c.toggleCodeBlock())} />
-        <B label="Tabel" icon={Table} on={st.table} onClick={run(c => c.insertTable({ rows: 3, cols: 3, withHeaderRow: true }))} />
-        <B label="Garis pemisah" icon={Minus} onClick={run(c => c.setHorizontalRule())} />
-        <B label="Gambar (atau tempel/seret ke sini)" icon={ImagePlus} onClick={onPicture} />
-      </fieldset>
+        <Sep />
+        <div role="group" aria-label="Gaya teks">
+          <B label="Tebal (Ctrl+B)" icon={Bold} on={st.bold} onClick={run(c => c.toggleBold())} />
+          <B label="Miring (Ctrl+I)" icon={Italic} on={st.italic} onClick={run(c => c.toggleItalic())} />
+          <B label="Coret" icon={Strikethrough} on={st.strike} onClick={run(c => c.toggleStrike())} />
+          <B label="Kode" icon={Code} on={st.code} onClick={run(c => c.toggleCode())} />
+          <B label="Link (Ctrl+K)" icon={Link2} onClick={setLink} />
+        </div>
+        <Sep />
+        <div role="group" aria-label="Blok">
+          <B label="Daftar berbutir" icon={List} on={st.bullet} onClick={run(c => c.toggleBulletList())} />
+          <B label="Daftar bernomor" icon={ListOrdered} on={st.ordered} onClick={run(c => c.toggleOrderedList())} />
+          <B label="Daftar centang" icon={ListTodo} on={st.task} onClick={run(c => c.toggleTaskList())} />
+          <B label="Kutipan" icon={Quote} on={st.quote} onClick={run(c => c.toggleBlockquote())} />
+          <B label="Blok kode" icon={SquareCode} on={st.codeBlock} onClick={run(c => c.toggleCodeBlock())} />
+        </div>
+        <Sep />
+        <div role="group" aria-label="Sisipkan">
+          <B label="Tabel" icon={Table} onClick={run(c => c.insertTable({ rows: 3, cols: 3, withHeaderRow: true }))} />
+          <B label="Garis pemisah" icon={Minus} onClick={run(c => c.setHorizontalRule())} />
+          <B label="Gambar (atau tempel/seret ke sini)" icon={ImagePlus} onClick={onPicture} />
+        </div>
+      </div>
       {st.table && st.editable && (
-        <div className="doc-tools doc-table-tools" role="toolbar" aria-label="Tabel">
+        <div ref={tableBar} className="doc-tools doc-table-tools" role="toolbar" aria-label="Tabel" focusgroup="toolbar wrap">
           <button type="button" className="btn" onClick={run(c => c.addRowAfter())}>+ Baris</button>
           <button type="button" className="btn" onClick={run(c => c.addColumnAfter())}>+ Kolom</button>
           <button type="button" className="btn" onClick={run(c => c.deleteRow())}>Hapus baris</button>
